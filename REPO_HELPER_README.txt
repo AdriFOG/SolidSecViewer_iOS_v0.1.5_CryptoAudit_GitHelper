@@ -44,3 +44,18 @@ REQUISITOS
 ----------
 Git for Windows
 GitHub CLI (gh)
+
+
+FIX v0.1.6
+------------
+Corregido ACTUALIZAR_GITHUB.bat para rutas de Windows con espacios.
+
+El error anterior ocurría porque %~dp0 termina con "\". Al pasarlo entre comillas
+a Robocopy podía convertirse en un primer argumento mal parseado.
+
+Ahora:
+- el BAT hace cd /d a su propia carpeta;
+- SOURCE_DIR se toma desde %CD%, sin barra final;
+- Robocopy imprime Origen y Destino antes de copiar;
+- el código de salida usa !ERRORLEVEL! con delayed expansion;
+- se verifica que SolidSecViewer.xcodeproj exista antes de tocar GitHub.

@@ -21,7 +21,7 @@ Cómo usar
 6. Cuando termine, abre la ejecución y baja el artifact:
    SolidSecViewer-LiveContainer
 7. Dentro estará:
-   SolidSecViewer-LiveContainer-v0.1.5.ipa
+   SolidSecViewer-LiveContainer-v0.1.6.ipa
 8. Pásalo al iPhone y en LiveContainer usa + para seleccionar el IPA.
 
 Firma
@@ -56,24 +56,24 @@ opción "Fix File Picker".
 IMPORTANTE PARA ACTUALIZAR DESDE v0.1
 ------------------------------------
 Borra de LiveContainer la copia anterior de SolidSec Viewer antes de importar el
-nuevo IPA v0.1.5. Así evitamos que LiveContainer reutilice el bundle roto/caché
+nuevo IPA v0.1.6. Así evitamos que LiveContainer reutilice el bundle roto/caché
 anterior.
 
 
-FIX v0.1.5
+FIX v0.1.6
 ----------
 Ya no se usa el flag de DerivedData personalizado junto con -target.
 El producto se coloca directamente en build/Products.
 
 
-FIX v0.1.5
+FIX v0.1.6
 ----------
 - Compatible con deployment target iOS 16: se quitó ContentUnavailableView (iOS 17).
 - Eliminado toolbar ambiguo; botón Bloquear está dentro de la galería.
 - Workflow usa solo `build`, no `clean build`, después de `rm -rf build`.
 
 
-AUDITED CI v0.1.5
+AUDITED CI v0.1.6
 -----------------
 El workflow ahora:
 - fija Xcode 16.4,

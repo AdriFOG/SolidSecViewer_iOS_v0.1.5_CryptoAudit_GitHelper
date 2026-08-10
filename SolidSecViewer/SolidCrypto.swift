@@ -5,7 +5,8 @@ enum SolidCryptoError: Error, LocalizedError {
     case badPasswordOrUnsupported
     case badHeader
     case invalidKeyOrIV
-    case cryptoFailure(Int32)
+    case unexpectedOutputLength(expected: Int, actual: Int)
+    case cryptoFailure(Int)
 
     var errorDescription: String? {
         switch self {
@@ -15,6 +16,8 @@ enum SolidCryptoError: Error, LocalizedError {
             return "Cabecera .sec inválida."
         case .invalidKeyOrIV:
             return "Clave o IV AES inválidos."
+        case .unexpectedOutputLength(let expected, let actual):
+            return "AES-CTR produjo \(actual) bytes; se esperaban \(expected)."
         case .cryptoFailure(let code):
             return "Error criptográfico (\(code))."
         }
@@ -59,7 +62,7 @@ enum SolidCrypto {
         }
 
         guard status == kCCSuccess else {
-            throw SolidCryptoError.cryptoFailure(status)
+            throw SolidCryptoError.cryptoFailure(Int(status))
         }
 
         return derivedKey
@@ -103,7 +106,7 @@ enum SolidCrypto {
         }
 
         guard createStatus == kCCSuccess, let cryptor else {
-            throw SolidCryptoError.cryptoFailure(createStatus)
+            throw SolidCryptoError.cryptoFailure(Int(createStatus))
         }
         defer { CCCryptorRelease(cryptor) }
 
@@ -123,11 +126,14 @@ enum SolidCrypto {
         }
 
         guard updateStatus == kCCSuccess else {
-            throw SolidCryptoError.cryptoFailure(updateStatus)
+            throw SolidCryptoError.cryptoFailure(Int(updateStatus))
         }
 
         guard moved == inputCount else {
-            throw SolidCryptoError.cryptoFailure(kCCDecodeError)
+            throw SolidCryptoError.unexpectedOutputLength(
+                expected: inputCount,
+                actual: moved
+            )
         }
 
         if moved < outputCapacity {

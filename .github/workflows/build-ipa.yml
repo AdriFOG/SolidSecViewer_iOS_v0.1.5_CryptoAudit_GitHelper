@@ -95,6 +95,19 @@ jobs:
             build \
             2>&1 | tee build/ios/xcodebuild.log
 
+      - name: Extract compiler diagnostics
+        if: always()
+        run: |
+          mkdir -p build/diagnostics
+
+          if [ -f build/ios/xcodebuild.log ]; then
+            grep -E -n "error:|warning:|BUILD FAILED|BUILD SUCCEEDED"               build/ios/xcodebuild.log               > build/diagnostics/compiler-summary.txt || true
+          fi
+
+          if [ -f build/selftest/selftest.log ]; then
+            grep -E -n "error:|warning:|SELFTEST|FAIL|OK"               build/selftest/selftest.log               > build/diagnostics/selftest-summary.txt || true
+          fi
+
       - name: Validate LiveContainer guest bundle
         id: validate
         if: steps.iosbuild.outcome == 'success'
@@ -155,18 +168,18 @@ jobs:
           ditto "$APP_PATH" build/package/Payload/SolidSecViewer.app
 
           cd build/package
-          /usr/bin/zip -qry SolidSecViewer-LiveContainer-v0.1.5.ipa Payload
+          /usr/bin/zip -qry SolidSecViewer-LiveContainer-v0.1.6.ipa Payload
 
-          unzip -tq SolidSecViewer-LiveContainer-v0.1.5.ipa
-          unzip -l SolidSecViewer-LiveContainer-v0.1.5.ipa | tee ipa-contents.txt
-          unzip -l SolidSecViewer-LiveContainer-v0.1.5.ipa | grep -q "Payload/SolidSecViewer.app/Info.plist"
-          unzip -l SolidSecViewer-LiveContainer-v0.1.5.ipa | grep -q "Payload/SolidSecViewer.app/SolidSecViewer"
+          unzip -tq SolidSecViewer-LiveContainer-v0.1.6.ipa
+          unzip -l SolidSecViewer-LiveContainer-v0.1.6.ipa | tee ipa-contents.txt
+          unzip -l SolidSecViewer-LiveContainer-v0.1.6.ipa | grep -q "Payload/SolidSecViewer.app/Info.plist"
+          unzip -l SolidSecViewer-LiveContainer-v0.1.6.ipa | grep -q "Payload/SolidSecViewer.app/SolidSecViewer"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-LiveContainer-v0.1.5
-          path: build/package/SolidSecViewer-LiveContainer-v0.1.5.ipa
+          name: SolidSecViewer-LiveContainer-v0.1.6
+          path: build/package/SolidSecViewer-LiveContainer-v0.1.6.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -174,10 +187,12 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-build-diagnostics-v0.1.5
+          name: SolidSecViewer-build-diagnostics-v0.1.6
           path: |
             build/selftest/selftest.log
             build/ios/xcodebuild.log
             build/ios/SolidSecViewer.xcresult
+            build/diagnostics/compiler-summary.txt
+            build/diagnostics/selftest-summary.txt
           if-no-files-found: ignore
           retention-days: 7

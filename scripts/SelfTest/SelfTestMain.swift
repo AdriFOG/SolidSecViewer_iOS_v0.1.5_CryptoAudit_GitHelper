@@ -82,6 +82,28 @@ struct SolidSecSelfTest {
             let empty = try SolidCrypto.aesCTR(Data(), key: key, iv: iv)
             try require(empty.isEmpty, "AES-CTR con entrada vacía falló")
 
+            do {
+                _ = try SolidCrypto.aesCTR(
+                    Data([0x01]),
+                    key: Data(repeating: 0, count: 31),
+                    iv: iv
+                )
+                throw SelfTestError.failed("AES aceptó una clave que no es de 256 bits")
+            } catch SolidCryptoError.invalidKeyOrIV {
+                // esperado
+            }
+
+            do {
+                _ = try SolidCrypto.aesCTR(
+                    Data([0x01]),
+                    key: key,
+                    iv: Data(repeating: 0, count: 15)
+                )
+                throw SelfTestError.failed("AES aceptó un IV que no mide 16 bytes")
+            } catch SolidCryptoError.invalidKeyOrIV {
+                // esperado
+            }
+
             let b64 = "aGVsbG8udHh0"
             try require(
                 SolidCrypto.decodeBase64URL(b64) == Data("hello.txt".utf8),

@@ -68,12 +68,19 @@ if errorlevel 1 (
 for /f "usebackq delims=" %%B in (`gh repo view "%REPO_FULL%" --json defaultBranchRef --jq ".defaultBranchRef.name"`) do set "DEFAULT_BRANCH=%%B"
 if not defined DEFAULT_BRANCH set "DEFAULT_BRANCH=main"
 
-set "SOURCE_DIR=%~dp0"
+set "SOURCE_DIR=%CD%"
 set "TEMP_REPO=%TEMP%\SolidSecViewer_Update_%RANDOM%_%RANDOM%"
 
 echo Repo:   %REPO_FULL%
 echo Rama:   %DEFAULT_BRANCH%
 echo Fuente: %SOURCE_DIR%
+echo.
+if not exist "%SOURCE_DIR%\SolidSecViewer.xcodeproj" (
+    echo [ERROR] No encuentro SolidSecViewer.xcodeproj en esta carpeta.
+    echo Ejecuta este BAT desde la raiz del build descomprimido.
+    pause
+    exit /b 1
+)
 echo.
 echo IMPORTANTE:
 echo Se excluyen automaticamente .sec, IPA, certificados, builds y ZIPs.
@@ -95,12 +102,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 if errorlevel 1 goto :fail
 
 echo [3/5] Copiando build nuevo...
-robocopy "%SOURCE_DIR%" "%TEMP_REPO%" /E /R:2 /W:1 /NFL /NDL /NJH /NJS /NP ^
-  /XD ".git" "build" "DerivedData" ".swiftpm" ^
+echo Origen : "%SOURCE_DIR%"
+echo Destino: "%TEMP_REPO%"
+echo.
+
+REM IMPORTANTE:
+REM SOURCE_DIR usa %CD% y NO %~dp0 para evitar que una barra invertida final
+REM rompa el primer parametro entre comillas de ROBOCOPY.
+
+robocopy "%SOURCE_DIR%" "%TEMP_REPO%" /E /R:2 /W:1 /NFL /NDL /NJH /NJS /NP /XJ ^
+  /XD "%SOURCE_DIR%\.git" "%SOURCE_DIR%\build" "%SOURCE_DIR%\DerivedData" "%SOURCE_DIR%\.swiftpm" ^
   /XF "*.sec" "*.ipa" "*.zip" "*.xcresult" "*.p12" "*.p8" "*.mobileprovision" "*.cer" ".env" ".env.*" "secrets.*"
-set "ROBO=%ERRORLEVEL%"
-if %ROBO% GEQ 8 (
-    echo [ERROR] Robocopy fallo con codigo %ROBO%.
+
+set "ROBO=!ERRORLEVEL!"
+if !ROBO! GEQ 8 (
+    echo [ERROR] Robocopy fallo con codigo !ROBO!.
     goto :fail
 )
 
