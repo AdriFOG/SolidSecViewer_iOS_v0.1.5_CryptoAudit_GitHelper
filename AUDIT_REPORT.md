@@ -1,86 +1,87 @@
-SOLIDSEC VIEWER iOS v0.1.8 — VALIDATOR FALSE-POSITIVE FIX
-==========================================================
+SOLIDSEC VIEWER iOS v0.2.0 — PRIVATE VAULT
+===========================================
 
-WHAT THE v0.1.7 DIAGNOSTICS PROVED
-----------------------------------
-The uploaded diagnostics show:
+WHAT CHANGED
+------------
+v0.1.8 proved the Solid .sec reader, self-test, arm64 iphoneos build, Mach-O
+validation and IPA packaging pipeline.
 
-  selftest=success
-  iosbuild=success
-  validate=failure
+v0.2.0 adds a second storage mode without replacing the .sec reader:
 
-The Swift crypto/parser self-test printed:
-  SOLIDSEC SELFTEST: OK
+1. Mi bóveda
+   - Own private storage inside the app.
+   - Independent folder/file browser.
+   - Create virtual folders.
+   - Import multiple files.
+   - Delete files/folders.
+   - Open encrypted images without writing a plaintext preview to disk.
+   - Auto-lock when the app resigns active / goes to background.
 
-The real iphoneos build ended in:
-  ** BUILD SUCCEEDED **
+2. Abrir Solid Explorer .sec
+   - Existing compatibility reader remains read-only.
+   - UI explains that iOS's directory picker uses the "Abrir" action.
+   - LiveContainer users are reminded to enable Fix File Picker if the picker
+     doesn't return the selected folder.
 
-The generated app was:
-  Mach-O 64-bit executable arm64
-
-Its Mach-O header was:
-  MH_MAGIC_64 ... EXECUTE
-
-The __PAGEZERO segment is present.
-
-So the app itself passed every important build-level requirement.
-
-THE EXACT FALSE POSITIVE
-------------------------
-The validator ran:
-
-  otool -L "$BIN" > dependencies.txt
-
-A normal `otool -L` output looks like:
-
-  /Users/runner/.../SolidSecViewer:
-      /System/Library/Frameworks/Foundation.framework/Foundation ...
-      /usr/lib/libobjc.A.dylib ...
-      ...
-
-The FIRST line is not a dependency. It is simply the path of the binary being
-inspected.
-
-v0.1.7 then searched the ENTIRE output file for:
-
-  /Users/runner
-
-Because the inspected binary itself lives inside GitHub's /Users/runner workspace,
-the validator incorrectly reported:
-
-  VALIDATION ERROR: runner-local dynamic dependency found
-
-There was no runner-local dylib in the actual dependency list.
-
-v0.1.8 CORRECTION
------------------
-The validator now parses only lines AFTER the first `otool -L` header line:
-
-  awk 'NR > 1 { print $1 }' dependencies.txt > dependency-paths.txt
-
-It then checks dependency-paths.txt for /Users/runner.
-
-This retains the safety check while no longer confusing the app's own location with
-a linked dependency.
-
-APPLICATION CODE
-----------------
-No Swift application logic was changed in v0.1.8.
-
-That is intentional: v0.1.7 already proved the actual arm64 iphoneos app builds
-successfully and the crypto/.sec self-test passes.
-
-EXPECTED NEXT RESULT
+PRIVATE VAULT CRYPTO
 --------------------
-If all checks remain identical, validation should now reach:
+The internal vault intentionally does NOT write new data using Solid Explorer's
+legacy AES-CTR format.
 
-  LIVE CONTAINER GUEST VALIDATION: OK
+Own-vault data uses:
+- PBKDF2-HMAC-SHA256
+- 310001 iterations
+- 256-bit key
+- AES-256-GCM authenticated encryption
+- random GCM nonce for each encrypted metadata/index operation
+- files encrypted as independent authenticated 1 MiB chunks
+- random UUID blob names on disk
+- encrypted index containing real filenames/folder structure
 
-and package:
+Plaintext filenames are not used as disk filenames.
 
-  SolidSecViewer-LiveContainer-v0.1.8.ipa
+STORAGE
+-------
+The private vault is stored under the app's Application Support directory:
+  SolidSecPrivateVault/
 
-REPOSITORY
-----------
-Use ACTUALIZAR_GITHUB.bat.
-Do not create a new repository.
+It contains:
+  vault.json    salt + encrypted password verifier (no plaintext password)
+  index.ssv     encrypted filenames/folder tree
+  blobs/        encrypted UUID-named file blobs
+
+The directory is excluded from normal backup best-effort and iOS
+NSFileProtectionComplete is applied to vault files/directories.
+
+PASSWORD
+--------
+The password is not stored.
+The derived key exists only while the vault is unlocked and is zeroed best-effort
+when locking/backgrounding.
+
+IMPORTS
+-------
+Individual imports use UIDocumentPickerViewController with asCopy=true.
+After encryption, a temporary imported copy inside the app container is removed
+when it is safe to do so.
+
+Large files are streamed into 1 MiB AES-GCM chunks rather than loaded completely
+into RAM.
+
+CURRENT LIMITS
+--------------
+- Internal video playback is not implemented yet.
+- No plaintext export yet.
+- No move/rename yet.
+- The external Solid .sec mode remains read-only.
+- File picker behavior inside LiveContainer can still depend on LiveContainer's
+  Fix File Picker compatibility setting.
+
+CI
+--
+The CI now runs BOTH crypto test suites:
+- Solid Explorer .sec PBKDF2/AES-CTR/parser fixture.
+- Private vault PBKDF2/AES-GCM/chunked-file round-trip/wrong-key tests.
+
+The IPA is packaged only after:
+  self-tests + iphoneos arm64 build + LiveContainer bundle validation.

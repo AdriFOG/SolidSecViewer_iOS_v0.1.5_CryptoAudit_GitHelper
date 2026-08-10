@@ -1,8 +1,16 @@
 import SwiftUI
 import UIKit
 
+private enum AppMode {
+    case privateVault
+    case solidSec
+}
+
 struct ContentView: View {
     @EnvironmentObject private var vault: VaultSession
+    @StateObject private var privateVault = PrivateVaultSession()
+
+    @State private var mode: AppMode?
     @State private var showFolderPicker = false
     @State private var password = ""
     @State private var selectedItem: VaultItem?
@@ -19,13 +27,21 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if vault.isUnlocked {
-                    galleryView
-                } else {
-                    unlockView
+                switch mode {
+                case .privateVault:
+                    PrivateVaultView {
+                        privateVault.lock()
+                        mode = nil
+                    }
+                    .environmentObject(privateVault)
+
+                case .solidSec:
+                    solidSecScreen
+
+                case nil:
+                    home
                 }
             }
-            .navigationTitle(vault.isUnlocked ? "Bóveda" : "Solid .sec Viewer")
         }
         .sheet(isPresented: $showFolderPicker) {
             FolderPicker { url in
@@ -49,18 +65,115 @@ struct ContentView: View {
     }
 
     private func lockForPrivacy() {
-        guard vault.isUnlocked else { return }
         vault.lock()
+        privateVault.lock()
         selectedItem = nil
         password = ""
     }
 
-    private var unlockView: some View {
+    private var home: some View {
         VStack(spacing: 18) {
             Spacer()
 
-            Image(systemName: "lock.shield.fill")
-                .font(.system(size: 64))
+            Image(systemName: "lock.square.stack.fill")
+                .font(.system(size: 68))
+                .foregroundStyle(.secondary)
+
+            Text("SolidSec Viewer")
+                .font(.largeTitle.bold())
+
+            Text("Lector .sec + bóveda privada")
+                .foregroundStyle(.secondary)
+
+            Button {
+                mode = .privateVault
+            } label: {
+                HStack {
+                    Image(systemName: "externaldrive.badge.lock")
+                        .font(.title2)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Mi bóveda")
+                            .font(.headline)
+
+                        Text("Espacio propio cifrado dentro de la app")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                }
+                .padding(8)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal)
+
+            Button {
+                mode = .solidSec
+            } label: {
+                HStack {
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.title2)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Abrir Solid Explorer .sec")
+                            .font(.headline)
+
+                        Text("Modo compatible de solo lectura")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                }
+                .padding(8)
+            }
+            .buttonStyle(.bordered)
+            .padding(.horizontal)
+
+            Spacer()
+
+            Text("Sin servidor • sin nube • bloqueo al salir")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom)
+        }
+        .navigationTitle("Inicio")
+    }
+
+    @ViewBuilder
+    private var solidSecScreen: some View {
+        if vault.isUnlocked {
+            externalGallery
+                .navigationTitle("Carpeta .sec")
+        } else {
+            externalUnlock
+                .navigationTitle("Solid .sec")
+        }
+    }
+
+    private var externalUnlock: some View {
+        VStack(spacing: 18) {
+            HStack {
+                Button {
+                    vault.lock()
+                    mode = nil
+                } label: {
+                    Label("Inicio", systemImage: "chevron.left")
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal)
+
+            Spacer()
+
+            Image(systemName: "folder.badge.gearshape")
+                .font(.system(size: 58))
                 .foregroundStyle(.secondary)
 
             Text("Abrir carpeta .sec")
@@ -75,9 +188,19 @@ struct ContentView: View {
             Button {
                 showFolderPicker = true
             } label: {
-                Label("Elegir carpeta", systemImage: "folder")
+                Label("Elegir carpeta .sec", systemImage: "folder")
             }
             .buttonStyle(.borderedProminent)
+
+            Text(
+                "En el selector de iOS entra a la carpeta y toca “Abrir”. "
+                + "Si LiveContainer no devuelve la carpeta, activa Fix File Picker "
+                + "para SolidSec Viewer."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 28)
 
             SecureField("Contraseña", text: $password)
                 .textContentType(.password)
@@ -88,6 +211,7 @@ struct ContentView: View {
             Button("Desbloquear") {
                 Task {
                     await vault.unlock(password: password)
+
                     if vault.isUnlocked {
                         password = ""
                     }
@@ -109,17 +233,21 @@ struct ContentView: View {
             }
 
             Spacer()
-
-            Text("100% local • Sin servidor • Se bloquea al salir de la app")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 18)
         }
     }
 
-    private var galleryView: some View {
+    private var externalGallery: some View {
         VStack(spacing: 8) {
             HStack {
+                Button {
+                    vault.lock()
+                    selectedItem = nil
+                    mode = nil
+                } label: {
+                    Image(systemName: "house")
+                }
+                .buttonStyle(.bordered)
+
                 TextField("Buscar", text: $search)
                     .textFieldStyle(.roundedBorder)
 

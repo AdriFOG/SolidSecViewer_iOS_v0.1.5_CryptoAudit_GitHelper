@@ -1,4 +1,4 @@
-SolidSec Viewer iOS v0.1.8
+SolidSec Viewer iOS v0.2.0
 ========================
 
 Estado
@@ -115,3 +115,17 @@ Esta revisión ya no es un parche de una sola línea.
 - Diagnósticos .xcresult + logs automáticos si falla.
 
 Lee AUDIT_REPORT.md para el detalle.
+
+
+PRIVATE VAULT v0.2.0
+--------------------
+Nueva pantalla de inicio:
+- Mi bóveda: almacenamiento cifrado propio.
+- Abrir Solid Explorer .sec: lector compatible anterior.
+
+Mi bóveda permite crear carpetas, importar múltiples archivos, eliminar elementos
+y visualizar imágenes cifradas.
+
+Para compilar:
+  ACTUALIZAR_GITHUB.bat
+y usa el mismo repositorio permanente.

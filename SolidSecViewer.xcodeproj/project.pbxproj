@@ -14,6 +14,10 @@
         A006 /* VaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B006 /* VaultSession.swift */; };
         A007 /* VaultThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B007 /* VaultThumbnail.swift */; };
         A008 /* MediaViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B008 /* MediaViewer.swift */; };
+        A009 /* PrivateVaultCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B010 /* PrivateVaultCrypto.swift */; };
+        A010 /* PrivateVaultModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* PrivateVaultModel.swift */; };
+        A011 /* PrivateVaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012 /* PrivateVaultSession.swift */; };
+        A012 /* PrivateVaultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B013 /* PrivateVaultView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +30,10 @@
         B007 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultThumbnail.swift; sourceTree = "<group>"; };
         B008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaViewer.swift; sourceTree = "<group>"; };
         B009 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+        B010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultCrypto.swift; sourceTree = "<group>"; };
+        B011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultModel.swift; sourceTree = "<group>"; };
+        B012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultSession.swift; sourceTree = "<group>"; };
+        B013 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultView.swift; sourceTree = "<group>"; };
         B100 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SolidSecViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -50,7 +58,7 @@
         D002 = {
             isa = PBXGroup;
             children = (
-                B001, B002, B003, B004, B005, B006, B007, B008, B009,
+                B001, B002, B003, B004, B005, B006, B007, B008, B009, B010, B011, B012, B013,
             );
             path = SolidSecViewer;
             sourceTree = "<group>";
@@ -116,7 +124,7 @@
         C002 = {
             isa = PBXSourcesBuildPhase;
             buildActionMask = 2147483647;
-            files = (A001,A002,A003,A004,A005,A006,A007,A008,);
+            files = (A001,A002,A003,A004,A005,A006,A007,A008,A009,A010,A011,A012,);
             runOnlyForDeploymentPostprocessing = 0;
         };
 /* End PBXSourcesBuildPhase section */
@@ -148,12 +156,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 9;
+                CURRENT_PROJECT_VERSION = 10;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.1.8;
+                MARKETING_VERSION = 0.2.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;
@@ -166,12 +174,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 9;
+                CURRENT_PROJECT_VERSION = 10;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.1.8;
+                MARKETING_VERSION = 0.2.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;

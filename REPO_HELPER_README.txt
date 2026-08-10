@@ -46,7 +46,7 @@ Git for Windows
 GitHub CLI (gh)
 
 
-FIX v0.1.8
+FIX v0.2.0
 ------------
 Corregido ACTUALIZAR_GITHUB.bat para rutas de Windows con espacios.
 
