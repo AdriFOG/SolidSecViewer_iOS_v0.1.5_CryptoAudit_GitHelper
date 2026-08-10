@@ -1,70 +1,86 @@
-SOLIDSEC VIEWER iOS v0.1.7 — CI VALIDATION AUDIT
-=================================================
+SOLIDSEC VIEWER iOS v0.1.8 — VALIDATOR FALSE-POSITIVE FIX
+==========================================================
 
-v0.1.6 RESULT
--------------
-The downloaded diagnostics contain a complete xcodebuild.log ending in:
+WHAT THE v0.1.7 DIAGNOSTICS PROVED
+----------------------------------
+The uploaded diagnostics show:
 
-    ** BUILD SUCCEEDED **
+  selftest=success
+  iosbuild=success
+  validate=failure
 
-The app linked successfully for arm64 / iphoneos. Therefore v0.1.7 deliberately
-does not rewrite the Swift application again. This revision fixes the CI layer.
+The Swift crypto/parser self-test printed:
+  SOLIDSEC SELFTEST: OK
 
-ROOT CAUSE IN THE VALIDATOR
----------------------------
-v0.1.6 used validation commands such as:
+The real iphoneos build ended in:
+  ** BUILD SUCCEEDED **
 
-    otool -l "$BIN" | grep -q "__PAGEZERO"
+The generated app was:
+  Mach-O 64-bit executable arm64
 
-while `set -o pipefail` was enabled.
+Its Mach-O header was:
+  MH_MAGIC_64 ... EXECUTE
 
-`grep -q` stops reading immediately after finding a match. A producer that still
-has output can receive SIGPIPE. With pipefail, the whole pipeline can then be
-reported as failed (commonly exit 141) even though grep found the expected value.
+The __PAGEZERO segment is present.
 
-The IPA validation also used an equivalent `unzip -l | grep -q` pattern.
+So the app itself passed every important build-level requirement.
 
-v0.1.7 FIX
-----------
-All important validators now:
-1. run the producer and save its complete output to a file;
-2. validate that completed file with grep.
+THE EXACT FALSE POSITIVE
+------------------------
+The validator ran:
 
-Examples:
-    otool -l "$BIN" > macho-load-commands.txt
-    grep -Fq "__PAGEZERO" macho-load-commands.txt
+  otool -L "$BIN" > dependencies.txt
 
-No producer-to-grep-q pipeline remains in active CI validation.
+A normal `otool -L` output looks like:
 
-SELF-TEST DIAGNOSTICS
----------------------
-v0.1.6 logged only the self-test COMPILATION output. If the compiled self-test
-failed at runtime, that message was not included in the downloaded artifact.
+  /Users/runner/.../SolidSecViewer:
+      /System/Library/Frameworks/Foundation.framework/Foundation ...
+      /usr/lib/libobjc.A.dylib ...
+      ...
 
-v0.1.7 writes:
-- compile.log
-- runtime.log
-- combined selftest.log
+The FIRST line is not a dependency. It is simply the path of the binary being
+inspected.
 
-LIVE CONTAINER CHECKS RETAINED
-------------------------------
-The final app must still have:
-- valid Info.plist;
-- CFBundleExecutable;
-- CFBundleIdentifier;
-- APPL package type;
-- executable main binary;
-- Mach-O format;
-- arm64;
-- MH_EXECUTE;
-- __PAGEZERO;
-- no runner-local dynamic dependency.
+v0.1.7 then searched the ENTIRE output file for:
 
-PACKAGE VALIDATION
-------------------
-The IPA is built only after self-test + iphoneos build + guest validation pass.
-Its ZIP listing is saved before checking the required Payload entries.
+  /Users/runner
+
+Because the inspected binary itself lives inside GitHub's /Users/runner workspace,
+the validator incorrectly reported:
+
+  VALIDATION ERROR: runner-local dynamic dependency found
+
+There was no runner-local dylib in the actual dependency list.
+
+v0.1.8 CORRECTION
+-----------------
+The validator now parses only lines AFTER the first `otool -L` header line:
+
+  awk 'NR > 1 { print $1 }' dependencies.txt > dependency-paths.txt
+
+It then checks dependency-paths.txt for /Users/runner.
+
+This retains the safety check while no longer confusing the app's own location with
+a linked dependency.
+
+APPLICATION CODE
+----------------
+No Swift application logic was changed in v0.1.8.
+
+That is intentional: v0.1.7 already proved the actual arm64 iphoneos app builds
+successfully and the crypto/.sec self-test passes.
+
+EXPECTED NEXT RESULT
+--------------------
+If all checks remain identical, validation should now reach:
+
+  LIVE CONTAINER GUEST VALIDATION: OK
+
+and package:
+
+  SolidSecViewer-LiveContainer-v0.1.8.ipa
 
 REPOSITORY
 ----------
-Use ACTUALIZAR_GITHUB.bat. Do not create a new repository.
+Use ACTUALIZAR_GITHUB.bat.
+Do not create a new repository.

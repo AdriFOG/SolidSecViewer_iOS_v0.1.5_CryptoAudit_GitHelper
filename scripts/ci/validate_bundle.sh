@@ -69,8 +69,20 @@ grep -Fq "arm64" "$OUT/lipo.txt" || fail "binary is not arm64"
 grep -Fq "EXECUTE" "$OUT/macho-header.txt" || fail "Mach-O is not MH_EXECUTE"
 grep -Fq "__PAGEZERO" "$OUT/macho-load-commands.txt" || fail "__PAGEZERO segment missing"
 
-if grep -Fq "/Users/runner" "$OUT/dependencies.txt"; then
+# `otool -L` prints the inspected binary path on line 1, followed by the actual
+# dependencies. On GitHub Actions that first line naturally starts with
+# /Users/runner/... and MUST NOT be treated as a dynamic dependency.
+#
+# Normalize ONLY dependency rows (NR > 1) to one path per line, then inspect those.
+awk 'NR > 1 { print $1 }' "$OUT/dependencies.txt" > "$OUT/dependency-paths.txt"
+
+if grep -Eq '^/Users/runner/' "$OUT/dependency-paths.txt"; then
+  log "Dependency paths:"
+  cat "$OUT/dependency-paths.txt" | tee -a "$OUT/validation.log"
   fail "runner-local dynamic dependency found"
 fi
+
+log "Dependency paths:"
+cat "$OUT/dependency-paths.txt" | tee -a "$OUT/validation.log"
 
 log "LIVE CONTAINER GUEST VALIDATION: OK"

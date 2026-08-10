@@ -6,7 +6,7 @@ cd "$ROOT"
 
 APP_PATH="${1:-$ROOT/build/ios/Products/SolidSecViewer.app}"
 OUT="$ROOT/build/package"
-IPA_NAME="SolidSecViewer-LiveContainer-v0.1.7.ipa"
+IPA_NAME="SolidSecViewer-LiveContainer-v0.1.8.ipa"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Payload"
