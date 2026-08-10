@@ -1,4 +1,4 @@
-SolidSec Viewer iOS v0.2.0
+SolidSec Viewer iOS v0.2.1
 ========================
 
 Estado
@@ -117,7 +117,7 @@ Esta revisión ya no es un parche de una sola línea.
 Lee AUDIT_REPORT.md para el detalle.
 
 
-PRIVATE VAULT v0.2.0
+PRIVATE VAULT v0.2.1
 --------------------
 Nueva pantalla de inicio:
 - Mi bóveda: almacenamiento cifrado propio.

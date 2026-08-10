@@ -34,8 +34,11 @@ private func dataFromHex(_ text: String) throws -> Data {
     return out
 }
 
-private func require(_ value: @autoclosure () -> Bool, _ message: String) throws {
-    if !value() {
+private func require(
+    _ value: @autoclosure () throws -> Bool,
+    _ message: String
+) throws {
+    if try !value() {
         throw PrivateSelfTestError.failed(message)
     }
 }

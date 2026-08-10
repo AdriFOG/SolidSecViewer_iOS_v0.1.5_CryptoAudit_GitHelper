@@ -1,87 +1,63 @@
-SOLIDSEC VIEWER iOS v0.2.0 — PRIVATE VAULT
-===========================================
+SOLIDSEC VIEWER iOS v0.2.1 — PRIVATE VAULT SELF-TEST FIX
+=========================================================
 
-WHAT CHANGED
-------------
-v0.1.8 proved the Solid .sec reader, self-test, arm64 iphoneos build, Mach-O
-validation and IPA packaging pipeline.
-
-v0.2.0 adds a second storage mode without replacing the .sec reader:
-
-1. Mi bóveda
-   - Own private storage inside the app.
-   - Independent folder/file browser.
-   - Create virtual folders.
-   - Import multiple files.
-   - Delete files/folders.
-   - Open encrypted images without writing a plaintext preview to disk.
-   - Auto-lock when the app resigns active / goes to background.
-
-2. Abrir Solid Explorer .sec
-   - Existing compatibility reader remains read-only.
-   - UI explains that iOS's directory picker uses the "Abrir" action.
-   - LiveContainer users are reminded to enable Fix File Picker if the picker
-     doesn't return the selected folder.
-
-PRIVATE VAULT CRYPTO
+DIAGNOSTICS REVIEWED
 --------------------
-The internal vault intentionally does NOT write new data using Solid Explorer's
-legacy AES-CTR format.
+The uploaded v0.2.0 diagnostic bundle reports:
 
-Own-vault data uses:
-- PBKDF2-HMAC-SHA256
-- 310001 iterations
-- 256-bit key
-- AES-256-GCM authenticated encryption
-- random GCM nonce for each encrypted metadata/index operation
-- files encrypted as independent authenticated 1 MiB chunks
-- random UUID blob names on disk
-- encrypted index containing real filenames/folder structure
+    selftest=failure
+    iosbuild=success
+    validate=success
 
-Plaintext filenames are not used as disk filenames.
+The real arm64 iPhone application build ended with:
 
-STORAGE
--------
-The private vault is stored under the app's Application Support directory:
-  SolidSecPrivateVault/
+    ** BUILD SUCCEEDED **
 
-It contains:
-  vault.json    salt + encrypted password verifier (no plaintext password)
-  index.ssv     encrypted filenames/folder tree
-  blobs/        encrypted UUID-named file blobs
+and the LiveContainer guest validation completed successfully.
 
-The directory is excluded from normal backup best-effort and iOS
-NSFileProtectionComplete is applied to vault files/directories.
+Therefore the v0.2.0 application itself was not changed in this revision.
 
-PASSWORD
---------
-The password is not stored.
-The derived key exists only while the vault is unlocked and is zeroed best-effort
-when locking/backgrounding.
+ROOT CAUSE
+----------
+PrivateVaultSelfTestMain.swift defined:
 
-IMPORTS
--------
-Individual imports use UIDocumentPickerViewController with asCopy=true.
-After encryption, a temporary imported copy inside the app container is removed
-when it is safe to do so.
+    require(_ value: @autoclosure () -> Bool, ...)
 
-Large files are streamed into 1 MiB AES-GCM chunks rather than loaded completely
-into RAM.
+but one test deliberately passed a throwing expression:
 
-CURRENT LIMITS
---------------
-- Internal video playback is not implemented yet.
-- No plaintext export yet.
-- No move/rename yet.
-- The external Solid .sec mode remains read-only.
-- File picker behavior inside LiveContainer can still depend on LiveContainer's
-  Fix File Picker compatibility setting.
+    try PrivateVaultCrypto.openSmall(...)
 
-CI
---
-The CI now runs BOTH crypto test suites:
-- Solid Explorer .sec PBKDF2/AES-CTR/parser fixture.
-- Private vault PBKDF2/AES-GCM/chunked-file round-trip/wrong-key tests.
+A non-throwing autoclosure cannot contain a throwing call, so the CI-only
+PrivateVaultSelfTest executable failed to compile.
 
-The IPA is packaged only after:
-  self-tests + iphoneos arm64 build + LiveContainer bundle validation.
+CORRECTION
+----------
+The assertion helper now accepts a throwing autoclosure:
+
+    @autoclosure () throws -> Bool
+
+and evaluates it with `try`.
+
+This is preferred over special-casing the single AES-GCM assertion because future
+tests may also need to assert values returned by throwing crypto/file APIs.
+
+SCOPE
+-----
+No production encryption, browser, .sec reader, LiveContainer code, storage format,
+or UI logic was modified.
+
+EXPECTED CI FLOW
+----------------
+v0.2.1 should now execute:
+
+    SolidSecSelfTest
+    PrivateVaultSelfTest
+    arm64 iphoneos build
+    LiveContainer guest validation
+    IPA packaging
+
+Expected artifact:
+
+    SolidSecViewer-LiveContainer-v0.2.1.ipa
+
+Use ACTUALIZAR_GITHUB.bat with the same repository.
