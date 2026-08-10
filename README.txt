@@ -1,4 +1,4 @@
-SolidSec Viewer iOS v0.1.6
+SolidSec Viewer iOS v0.1.7
 ========================
 
 Estado
@@ -43,7 +43,7 @@ Usa únicamente la carpeta holiwi.sec de prueba y su contraseña conocida antes 
 probar material privado.
 
 
-LIVE CONTAINER FIX v0.1.6
+LIVE CONTAINER FIX v0.1.7
 -------------------------
 Corregido CFBundleExecutable. La v0.1 usaba un Info.plist manual que no declaraba
 explícitamente el ejecutable principal. LiveContainer podía importar la app, pero al
@@ -61,7 +61,7 @@ Si cualquiera de esas comprobaciones falla, GitHub Actions falla en vez de entre
 un IPA roto.
 
 
-GITHUB ACTIONS FIX v0.1.6
+GITHUB ACTIONS FIX v0.1.7
 -------------------------
 Corregido el fallo de xcodebuild que exige -scheme al usar un custom DerivedData path.
 
@@ -80,7 +80,7 @@ Después el workflow verifica:
 - Payload/SolidSecViewer.app
 
 
-SWIFT / iOS 16 FIX v0.1.6
+SWIFT / iOS 16 FIX v0.1.7
 -------------------------
 Corregidos los errores reales de compilación encontrados con Xcode 16.4:
 
@@ -99,10 +99,10 @@ Corregidos los errores reales de compilación encontrados con Xcode 16.4:
    "Could not delete ... because it was not created by the build system."
 
 El IPA generado ahora se llama:
-  SolidSecViewer-LiveContainer-v0.1.6.ipa
+  SolidSecViewer-LiveContainer-v0.1.7.ipa
 
 
-AUDITED BUILD v0.1.6
+AUDITED BUILD v0.1.7
 --------------------
 Esta revisión ya no es un parche de una sola línea.
 

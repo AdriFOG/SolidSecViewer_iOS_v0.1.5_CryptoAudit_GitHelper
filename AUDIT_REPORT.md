@@ -1,73 +1,70 @@
-SOLIDSEC VIEWER iOS v0.1.6 — COMMONCRYPTO STATUS AUDIT
-=======================================================
+SOLIDSEC VIEWER iOS v0.1.7 — CI VALIDATION AUDIT
+=================================================
 
-Observed failure
-----------------
-The macOS Swift self-test compiled far enough to report:
+v0.1.6 RESULT
+-------------
+The downloaded diagnostics contain a complete xcodebuild.log ending in:
 
-  cannot convert value of type 'Int' to expected argument type 'Int32'
+    ** BUILD SUCCEEDED **
 
-at the attempt to pass kCCDecodeError into our own cryptoFailure(Int32) enum case.
+The app linked successfully for arm64 / iphoneos. Therefore v0.1.7 deliberately
+does not rewrite the Swift application again. This revision fixes the CI layer.
 
-Why this happened
------------------
-The project had coupled its Swift error model to one imported C integer width:
-  cryptoFailure(Int32)
+ROOT CAUSE IN THE VALIDATOR
+---------------------------
+v0.1.6 used validation commands such as:
 
-CommonCrypto APIs expose status typedefs while some imported constants can appear
-to Swift with a different integer type. Casting just kCCDecodeError would repair
-that one line but leave the design fragile.
+    otool -l "$BIN" | grep -q "__PAGEZERO"
 
-Systemic correction
--------------------
-Our application-facing error now stores:
-  cryptoFailure(Int)
+while `set -o pipefail` was enabled.
 
-Every actual CommonCrypto status is normalized to Int only at the error boundary.
+`grep -q` stops reading immediately after finding a match. A producer that still
+has output can receive SIGPIPE. With pipefail, the whole pipeline can then be
+reported as failed (commonly exit 141) even though grep found the expected value.
 
-More importantly, "moved != inputCount" is no longer mislabeled as
-kCCDecodeError. CCCryptorUpdate already returned success at that point; a wrong
-output byte count is OUR invariant failure, so it has its own error:
+The IPA validation also used an equivalent `unzip -l | grep -q` pattern.
 
-  unexpectedOutputLength(expected:actual:)
+v0.1.7 FIX
+----------
+All important validators now:
+1. run the producer and save its complete output to a file;
+2. validate that completed file with grep.
 
-That removes kCCDecodeError from this path entirely and describes the real problem.
+Examples:
+    otool -l "$BIN" > macho-load-commands.txt
+    grep -Fq "__PAGEZERO" macho-load-commands.txt
 
-Crypto invariants now tested
-----------------------------
-- PBKDF2-HMAC-SHA256 known-answer vector.
-- AES-256-CTR known-answer vector.
-- CTR decrypt/encrypt symmetry.
-- Empty input.
-- Reject 31-byte AES key.
-- Reject 15-byte IV.
-- Base64URL decode.
-- Synthetic Solid Explorer-style .sec fixture.
-- Correct password unlock.
-- Wrong password rejection.
-- Encrypted filename recovery.
-- Encrypted content recovery.
-- Lock closes the session.
+No producer-to-grep-q pipeline remains in active CI validation.
 
-CI diagnostics
---------------
-The workflow still runs BOTH:
-- macOS crypto/parser self-test
-- arm64 iPhone build
+SELF-TEST DIAGNOSTICS
+---------------------
+v0.1.6 logged only the self-test COMPILATION output. If the compiled self-test
+failed at runtime, that message was not included in the downloaded artifact.
 
-even if one fails.
+v0.1.7 writes:
+- compile.log
+- runtime.log
+- combined selftest.log
 
-It now additionally creates:
-  build/diagnostics/compiler-summary.txt
-  build/diagnostics/selftest-summary.txt
+LIVE CONTAINER CHECKS RETAINED
+------------------------------
+The final app must still have:
+- valid Info.plist;
+- CFBundleExecutable;
+- CFBundleIdentifier;
+- APPL package type;
+- executable main binary;
+- Mach-O format;
+- arm64;
+- MH_EXECUTE;
+- __PAGEZERO;
+- no runner-local dynamic dependency.
 
-so a future failure exposes the useful compiler lines immediately.
+PACKAGE VALIDATION
+------------------
+The IPA is built only after self-test + iphoneos build + guest validation pass.
+Its ZIP listing is saved before checking the required Payload entries.
 
-Repository workflow
--------------------
-Do not create a new repository.
-
-Use:
-  ACTUALIZAR_GITHUB.bat
-
-from this build. It updates the permanent repository and triggers Actions.
+REPOSITORY
+----------
+Use ACTUALIZAR_GITHUB.bat. Do not create a new repository.

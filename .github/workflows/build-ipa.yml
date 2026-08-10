@@ -30,7 +30,7 @@ jobs:
 
       - name: Toolchain preflight
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           test -d "$DEVELOPER_DIR"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
@@ -50,29 +50,14 @@ jobs:
       - name: Crypto and .sec parser self-test
         id: selftest
         continue-on-error: true
-        run: |
-          set -euxo pipefail
-          rm -rf build/selftest
-          mkdir -p build/selftest
-
-          xcrun swiftc \
-            -swift-version 5 \
-            -parse-as-library \
-            SolidSecViewer/SolidCrypto.swift \
-            SolidSecViewer/VaultItem.swift \
-            SolidSecViewer/VaultSession.swift \
-            scripts/SelfTest/SelfTestMain.swift \
-            -framework Combine \
-            -o build/selftest/SolidSecSelfTest \
-            2>&1 | tee build/selftest/selftest.log
-
-          build/selftest/SolidSecSelfTest
+        run: bash scripts/ci/run_selftest.sh
 
       - name: Build arm64 iPhone app
         id: iosbuild
         continue-on-error: true
         run: |
-          set -euxo pipefail
+          set -euo pipefail
+
           rm -rf build/ios
           mkdir -p build/ios
 
@@ -95,91 +80,44 @@ jobs:
             build \
             2>&1 | tee build/ios/xcodebuild.log
 
-      - name: Extract compiler diagnostics
-        if: always()
-        run: |
-          mkdir -p build/diagnostics
-
-          if [ -f build/ios/xcodebuild.log ]; then
-            grep -E -n "error:|warning:|BUILD FAILED|BUILD SUCCEEDED"               build/ios/xcodebuild.log               > build/diagnostics/compiler-summary.txt || true
-          fi
-
-          if [ -f build/selftest/selftest.log ]; then
-            grep -E -n "error:|warning:|SELFTEST|FAIL|OK"               build/selftest/selftest.log               > build/diagnostics/selftest-summary.txt || true
-          fi
-
       - name: Validate LiveContainer guest bundle
         id: validate
         if: steps.iosbuild.outcome == 'success'
         continue-on-error: true
+        run: bash scripts/ci/validate_bundle.sh
+
+      - name: Write CI status
+        if: always()
         run: |
-          set -euxo pipefail
+          mkdir -p build/diagnostics
+          {
+            echo "selftest=${{ steps.selftest.outcome }}"
+            echo "iosbuild=${{ steps.iosbuild.outcome }}"
+            echo "validate=${{ steps.validate.outcome }}"
+          } | tee build/diagnostics/status.txt
 
-          APP_PATH="$PWD/build/ios/Products/SolidSecViewer.app"
-
-          test -d "$APP_PATH"
-          test -f "$APP_PATH/Info.plist"
-          plutil -lint "$APP_PATH/Info.plist"
-
-          EXECUTABLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Info.plist")
-          PACKAGE_TYPE=$(/usr/libexec/PlistBuddy -c "Print :CFBundlePackageType" "$APP_PATH/Info.plist")
-
-          test -n "$EXECUTABLE"
-          test -n "$BUNDLE_ID"
-          test "$PACKAGE_TYPE" = "APPL"
-          test -f "$APP_PATH/$EXECUTABLE"
-          test -x "$APP_PATH/$EXECUTABLE"
-
-          file "$APP_PATH/$EXECUTABLE"
-          xcrun lipo -info "$APP_PATH/$EXECUTABLE"
-          otool -hv "$APP_PATH/$EXECUTABLE"
-          otool -L "$APP_PATH/$EXECUTABLE"
-
-          file "$APP_PATH/$EXECUTABLE" | grep -q "Mach-O"
-          xcrun lipo -info "$APP_PATH/$EXECUTABLE" | grep -q "arm64"
-          otool -hv "$APP_PATH/$EXECUTABLE" | grep -q "EXECUTE"
-          otool -l "$APP_PATH/$EXECUTABLE" | grep -q "__PAGEZERO"
-
-          if otool -L "$APP_PATH/$EXECUTABLE" | grep -q "/Users/runner"; then
-            echo "ERROR: dependencia dinámica local del runner detectada."
-            exit 1
+          if [ -f build/ios/xcodebuild.log ]; then
+            grep -E -n "error:|warning:|BUILD FAILED|BUILD SUCCEEDED" \
+              build/ios/xcodebuild.log \
+              > build/diagnostics/compiler-summary.txt || true
           fi
 
       - name: Gate audited build
         if: always()
         run: |
-          set -euxo pipefail
-          echo "selftest = ${{ steps.selftest.outcome }}"
-          echo "iosbuild = ${{ steps.iosbuild.outcome }}"
-          echo "validate = ${{ steps.validate.outcome }}"
-
+          set -euo pipefail
           test "${{ steps.selftest.outcome }}" = "success"
           test "${{ steps.iosbuild.outcome }}" = "success"
           test "${{ steps.validate.outcome }}" = "success"
 
       - name: Package and validate IPA
-        run: |
-          set -euxo pipefail
-
-          APP_PATH="$PWD/build/ios/Products/SolidSecViewer.app"
-          rm -rf build/package
-          mkdir -p build/package/Payload
-          ditto "$APP_PATH" build/package/Payload/SolidSecViewer.app
-
-          cd build/package
-          /usr/bin/zip -qry SolidSecViewer-LiveContainer-v0.1.6.ipa Payload
-
-          unzip -tq SolidSecViewer-LiveContainer-v0.1.6.ipa
-          unzip -l SolidSecViewer-LiveContainer-v0.1.6.ipa | tee ipa-contents.txt
-          unzip -l SolidSecViewer-LiveContainer-v0.1.6.ipa | grep -q "Payload/SolidSecViewer.app/Info.plist"
-          unzip -l SolidSecViewer-LiveContainer-v0.1.6.ipa | grep -q "Payload/SolidSecViewer.app/SolidSecViewer"
+        run: bash scripts/ci/package_ipa.sh
 
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-LiveContainer-v0.1.6
-          path: build/package/SolidSecViewer-LiveContainer-v0.1.6.ipa
+          name: SolidSecViewer-LiveContainer-v0.1.7
+          path: build/package/SolidSecViewer-LiveContainer-v0.1.7.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -187,12 +125,20 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-build-diagnostics-v0.1.6
+          name: SolidSecViewer-build-diagnostics-v0.1.7
           path: |
+            build/selftest/compile.log
+            build/selftest/runtime.log
             build/selftest/selftest.log
             build/ios/xcodebuild.log
             build/ios/SolidSecViewer.xcresult
+            build/validation/validation.log
+            build/validation/file.txt
+            build/validation/lipo.txt
+            build/validation/macho-header.txt
+            build/validation/macho-load-commands.txt
+            build/validation/dependencies.txt
+            build/diagnostics/status.txt
             build/diagnostics/compiler-summary.txt
-            build/diagnostics/selftest-summary.txt
           if-no-files-found: ignore
           retention-days: 7
