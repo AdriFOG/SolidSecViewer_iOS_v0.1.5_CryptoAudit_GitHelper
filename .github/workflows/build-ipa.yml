@@ -1,0 +1,183 @@
+name: Build SolidSec Viewer IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "SolidSecViewer/**"
+      - "SolidSecViewer.xcodeproj/**"
+      - "scripts/**"
+      - ".github/workflows/build-ipa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Audit, build and validate unsigned iOS IPA
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Toolchain preflight
+        run: |
+          set -euxo pipefail
+          test -d "$DEVELOPER_DIR"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          swiftc --version
+          plutil -lint SolidSecViewer/Info.plist
+
+          if grep -R --line-number --fixed-strings "ContentUnavailableView" SolidSecViewer; then
+            echo "ERROR: ContentUnavailableView requiere iOS 17+."
+            exit 1
+          fi
+
+          if grep -R --line-number --fixed-strings ".onChange(of:" SolidSecViewer; then
+            echo "ERROR: este target iOS 16 usa notificaciones UIKit para lifecycle."
+            exit 1
+          fi
+
+      - name: Crypto and .sec parser self-test
+        id: selftest
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          rm -rf build/selftest
+          mkdir -p build/selftest
+
+          xcrun swiftc \
+            -swift-version 5 \
+            -parse-as-library \
+            SolidSecViewer/SolidCrypto.swift \
+            SolidSecViewer/VaultItem.swift \
+            SolidSecViewer/VaultSession.swift \
+            scripts/SelfTest/SelfTestMain.swift \
+            -framework Combine \
+            -o build/selftest/SolidSecSelfTest \
+            2>&1 | tee build/selftest/selftest.log
+
+          build/selftest/SolidSecSelfTest
+
+      - name: Build arm64 iPhone app
+        id: iosbuild
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          rm -rf build/ios
+          mkdir -p build/ios
+
+          xcodebuild \
+            -project SolidSecViewer.xcodeproj \
+            -target SolidSecViewer \
+            -configuration Release \
+            -sdk iphoneos \
+            -resultBundlePath "$PWD/build/ios/SolidSecViewer.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
+            CONFIGURATION_BUILD_DIR="$PWD/build/ios/Products" \
+            OBJROOT="$PWD/build/ios/obj" \
+            SYMROOT="$PWD/build/ios/sym" \
+            build \
+            2>&1 | tee build/ios/xcodebuild.log
+
+      - name: Validate LiveContainer guest bundle
+        id: validate
+        if: steps.iosbuild.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+
+          APP_PATH="$PWD/build/ios/Products/SolidSecViewer.app"
+
+          test -d "$APP_PATH"
+          test -f "$APP_PATH/Info.plist"
+          plutil -lint "$APP_PATH/Info.plist"
+
+          EXECUTABLE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Info.plist")
+          PACKAGE_TYPE=$(/usr/libexec/PlistBuddy -c "Print :CFBundlePackageType" "$APP_PATH/Info.plist")
+
+          test -n "$EXECUTABLE"
+          test -n "$BUNDLE_ID"
+          test "$PACKAGE_TYPE" = "APPL"
+          test -f "$APP_PATH/$EXECUTABLE"
+          test -x "$APP_PATH/$EXECUTABLE"
+
+          file "$APP_PATH/$EXECUTABLE"
+          xcrun lipo -info "$APP_PATH/$EXECUTABLE"
+          otool -hv "$APP_PATH/$EXECUTABLE"
+          otool -L "$APP_PATH/$EXECUTABLE"
+
+          file "$APP_PATH/$EXECUTABLE" | grep -q "Mach-O"
+          xcrun lipo -info "$APP_PATH/$EXECUTABLE" | grep -q "arm64"
+          otool -hv "$APP_PATH/$EXECUTABLE" | grep -q "EXECUTE"
+          otool -l "$APP_PATH/$EXECUTABLE" | grep -q "__PAGEZERO"
+
+          if otool -L "$APP_PATH/$EXECUTABLE" | grep -q "/Users/runner"; then
+            echo "ERROR: dependencia dinámica local del runner detectada."
+            exit 1
+          fi
+
+      - name: Gate audited build
+        if: always()
+        run: |
+          set -euxo pipefail
+          echo "selftest = ${{ steps.selftest.outcome }}"
+          echo "iosbuild = ${{ steps.iosbuild.outcome }}"
+          echo "validate = ${{ steps.validate.outcome }}"
+
+          test "${{ steps.selftest.outcome }}" = "success"
+          test "${{ steps.iosbuild.outcome }}" = "success"
+          test "${{ steps.validate.outcome }}" = "success"
+
+      - name: Package and validate IPA
+        run: |
+          set -euxo pipefail
+
+          APP_PATH="$PWD/build/ios/Products/SolidSecViewer.app"
+          rm -rf build/package
+          mkdir -p build/package/Payload
+          ditto "$APP_PATH" build/package/Payload/SolidSecViewer.app
+
+          cd build/package
+          /usr/bin/zip -qry SolidSecViewer-LiveContainer-v0.1.5.ipa Payload
+
+          unzip -tq SolidSecViewer-LiveContainer-v0.1.5.ipa
+          unzip -l SolidSecViewer-LiveContainer-v0.1.5.ipa | tee ipa-contents.txt
+          unzip -l SolidSecViewer-LiveContainer-v0.1.5.ipa | grep -q "Payload/SolidSecViewer.app/Info.plist"
+          unzip -l SolidSecViewer-LiveContainer-v0.1.5.ipa | grep -q "Payload/SolidSecViewer.app/SolidSecViewer"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v6
+        with:
+          name: SolidSecViewer-LiveContainer-v0.1.5
+          path: build/package/SolidSecViewer-LiveContainer-v0.1.5.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload diagnostics if anything fails
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: SolidSecViewer-build-diagnostics-v0.1.5
+          path: |
+            build/selftest/selftest.log
+            build/ios/xcodebuild.log
+            build/ios/SolidSecViewer.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

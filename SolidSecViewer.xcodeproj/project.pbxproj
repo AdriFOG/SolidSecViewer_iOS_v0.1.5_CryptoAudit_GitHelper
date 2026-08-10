@@ -1,0 +1,201 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 56;
+    objects = {
+
+/* Begin PBXBuildFile section */
+        A001 /* SolidSecViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B001 /* SolidSecViewerApp.swift */; };
+        A002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002 /* ContentView.swift */; };
+        A003 /* FolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003 /* FolderPicker.swift */; };
+        A004 /* VaultItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B004 /* VaultItem.swift */; };
+        A005 /* SolidCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B005 /* SolidCrypto.swift */; };
+        A006 /* VaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B006 /* VaultSession.swift */; };
+        A007 /* VaultThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B007 /* VaultThumbnail.swift */; };
+        A008 /* MediaViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B008 /* MediaViewer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+        B001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolidSecViewerApp.swift; sourceTree = "<group>"; };
+        B002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+        B003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPicker.swift; sourceTree = "<group>"; };
+        B004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultItem.swift; sourceTree = "<group>"; };
+        B005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolidCrypto.swift; sourceTree = "<group>"; };
+        B006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSession.swift; sourceTree = "<group>"; };
+        B007 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultThumbnail.swift; sourceTree = "<group>"; };
+        B008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaViewer.swift; sourceTree = "<group>"; };
+        B009 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+        B100 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SolidSecViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+        C001 = {
+            isa = PBXFrameworksBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+        D001 = {
+            isa = PBXGroup;
+            children = (
+                D002 /* SolidSecViewer */,
+                D003 /* Products */,
+            );
+            sourceTree = "<group>";
+        };
+        D002 = {
+            isa = PBXGroup;
+            children = (
+                B001, B002, B003, B004, B005, B006, B007, B008, B009,
+            );
+            path = SolidSecViewer;
+            sourceTree = "<group>";
+        };
+        D003 = {
+            isa = PBXGroup;
+            children = (B100,);
+            name = Products;
+            sourceTree = "<group>";
+        };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+        E001 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = F002;
+            buildPhases = (
+                C002 /* Sources */,
+                C001 /* Frameworks */,
+                C003 /* Resources */,
+            );
+            buildRules = ();
+            dependencies = ();
+            name = SolidSecViewer;
+            productName = SolidSecViewer;
+            productReference = B100;
+            productType = "com.apple.product-type.application";
+        };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+        P001 = {
+            isa = PBXProject;
+            attributes = {
+                BuildIndependentTargetsInParallel = 1;
+                LastSwiftUpdateCheck = 1600;
+                LastUpgradeCheck = 1600;
+                TargetAttributes = { E001 = { CreatedOnToolsVersion = 16.0; }; };
+            };
+            buildConfigurationList = F001;
+            compatibilityVersion = "Xcode 14.0";
+            developmentRegion = en;
+            hasScannedForEncodings = 0;
+            knownRegions = (en, Base);
+            mainGroup = D001;
+            productRefGroup = D003;
+            projectDirPath = "";
+            projectRoot = "";
+            targets = (E001,);
+        };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+        C003 = {
+            isa = PBXResourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+        C002 = {
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (A001,A002,A003,A004,A005,A006,A007,A008,);
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+        G001 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                ALWAYS_SEARCH_USER_PATHS = NO;
+                CLANG_ENABLE_MODULES = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+                SDKROOT = iphoneos;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Debug;
+        };
+        G002 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                ALWAYS_SEARCH_USER_PATHS = NO;
+                CLANG_ENABLE_MODULES = YES;
+                IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+                SDKROOT = iphoneos;
+                SWIFT_VERSION = 5.0;
+            };
+            name = Release;
+        };
+        G003 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                CURRENT_PROJECT_VERSION = 6;
+                EXECUTABLE_NAME = SolidSecViewer;
+                GENERATE_INFOPLIST_FILE = NO;
+                INFOPLIST_FILE = SolidSecViewer/Info.plist;
+                IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+                MARKETING_VERSION = 0.1.5;
+                PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_EMIT_LOC_STRINGS = YES;
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1";
+            };
+            name = Debug;
+        };
+        G004 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_STYLE = Automatic;
+                CURRENT_PROJECT_VERSION = 6;
+                EXECUTABLE_NAME = SolidSecViewer;
+                GENERATE_INFOPLIST_FILE = NO;
+                INFOPLIST_FILE = SolidSecViewer/Info.plist;
+                IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+                MARKETING_VERSION = 0.1.5;
+                PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_EMIT_LOC_STRINGS = YES;
+                SWIFT_VERSION = 5.0;
+                TARGETED_DEVICE_FAMILY = "1";
+            };
+            name = Release;
+        };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+        F001 = {
+            isa = XCConfigurationList;
+            buildConfigurations = (G001,G002,);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Release;
+        };
+        F002 = {
+            isa = XCConfigurationList;
+            buildConfigurations = (G003,G004,);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Release;
+        };
+/* End XCConfigurationList section */
+    };
+    rootObject = P001;
+}
