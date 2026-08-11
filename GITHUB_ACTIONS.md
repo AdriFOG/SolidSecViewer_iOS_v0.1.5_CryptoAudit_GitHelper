@@ -1,4 +1,4 @@
-# Nikaido Explorer v0.8.0 — GitHub Actions
+# Nikaido Explorer v0.8.1 — GitHub Actions
 
 El workflow `.github/workflows/build-ipa.yml` usa macOS + Xcode 16.4 porque la
 compilación real de UIKit/AVFoundation/Network.framework requiere el SDK de iPhone.
@@ -10,8 +10,8 @@ compilación real de UIKit/AVFoundation/Network.framework requiere el SDK de iPh
 3. El BAT reutiliza el mismo repo permanente y hace push.
 4. Abre **Actions -> Build Nikaido Explorer IPA**.
 5. Espera que termine el job completo.
-6. Descarga `NikaidoExplorer-LiveContainer-v0.8.0`.
-7. Dentro estará `NikaidoExplorer-LiveContainer-v0.8.0.ipa`.
+6. Descarga `NikaidoExplorer-LiveContainer-v0.8.1`.
+7. Dentro estará `NikaidoExplorer-LiveContainer-v0.8.1.ipa`.
 
 ## Puertas del workflow
 
@@ -37,7 +37,7 @@ La IPA no se publica si falla cualquiera de estas puertas.
 
 En fallo se intenta publicar:
 
-`NikaidoExplorer-build-diagnostics-v0.8.0`
+`NikaidoExplorer-build-diagnostics-v0.8.1`
 
 Incluye logs de self-tests, resolución SPM, PC test, xcodebuild, xcresult,
 validación de bundle/Mach-O y resumen de status/warnings.

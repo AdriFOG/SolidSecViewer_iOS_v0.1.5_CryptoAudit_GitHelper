@@ -6,7 +6,7 @@ cd "$ROOT"
 
 APP_PATH="${1:-$ROOT/build/ios/Products/SolidSecViewer.app}"
 OUT="$ROOT/build/package"
-IPA_NAME="NikaidoExplorer-LiveContainer-v0.8.0.ipa"
+IPA_NAME="NikaidoExplorer-LiveContainer-v0.8.1.ipa"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/Payload"

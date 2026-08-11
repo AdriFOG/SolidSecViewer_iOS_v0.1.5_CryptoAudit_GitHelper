@@ -44,6 +44,26 @@ private func require(
     }
 }
 
+/// Synchronous, lock-protected cancellation fixture for @Sendable callbacks.
+/// This keeps the self-test valid under Swift 6 concurrency checking instead
+/// of mutating a captured local variable from concurrently-executing code.
+private final class CancellationProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var checks = 0
+    private let cancelAt: Int
+
+    init(cancelAt: Int) {
+        self.cancelAt = cancelAt
+    }
+
+    func shouldCancel() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        checks += 1
+        return checks >= cancelAt
+    }
+}
+
 @main
 struct PrivateVaultSelfTest {
     static func main() {
@@ -357,7 +377,7 @@ struct PrivateVaultSelfTest {
 
             // Cancellation must stop long plaintext work at an encrypted
             // frame boundary and must not leave a completed plaintext artifact.
-            var memoryCancelChecks = 0
+            let memoryCancellation = CancellationProbe(cancelAt: 2)
             do {
                 _ = try PrivateVaultCrypto.decryptFileToData(
                     source: encrypted,
@@ -366,8 +386,7 @@ struct PrivateVaultSelfTest {
                     expectedPlaintextSize: Int64(large.count),
                     expectedSHA256: largeHash,
                     shouldCancel: {
-                        memoryCancelChecks += 1
-                        return memoryCancelChecks >= 2
+                        memoryCancellation.shouldCancel()
                     }
                 )
                 throw PrivateSelfTestError.failed(
@@ -380,7 +399,7 @@ struct PrivateVaultSelfTest {
             let cancelledDestination = root.appendingPathComponent(
                 "cancelled-recovered.bin"
             )
-            var fileCancelChecks = 0
+            let fileCancellation = CancellationProbe(cancelAt: 2)
             do {
                 try PrivateVaultCrypto.decryptFile(
                     source: encrypted,
@@ -389,8 +408,7 @@ struct PrivateVaultSelfTest {
                     expectedPlaintextSize: Int64(large.count),
                     expectedSHA256: largeHash,
                     shouldCancel: {
-                        fileCancelChecks += 1
-                        return fileCancelChecks >= 2
+                        fileCancellation.shouldCancel()
                     }
                 )
                 throw PrivateSelfTestError.failed(

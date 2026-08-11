@@ -1,4 +1,4 @@
-NIKAIDO EXPLORER iOS v0.8.0 — RELIABILITY PREVIEW
+NIKAIDO EXPLORER iOS v0.8.1 — RELIABILITY PREVIEW
 ==================================================
 
 IDENTIDAD
@@ -159,9 +159,9 @@ Usa el MISMO repo con:
 
 Artifact esperado cuando GitHub Actions quede verde:
 
-  NikaidoExplorer-LiveContainer-v0.8.0.ipa
+  NikaidoExplorer-LiveContainer-v0.8.1.ipa
 
-NO se afirma que v0.8.0 compile realmente hasta que Xcode/GitHub Actions pase todas
+NO se afirma que v0.8.1 compile realmente hasta que Xcode/GitHub Actions pase todas
 las puertas. Este paquete sí incluye validaciones estáticas y self-tests para que el
 runner detecte la mayor cantidad posible de regresiones antes de publicar la IPA.
 
@@ -169,7 +169,7 @@ PRUEBA FUTURA RECOMENDADA
 -------------------------
 Cuando vuelvas a tener acceso al iPhone:
 
-1. Compilar v0.8.0 en GitHub Actions.
+1. Compilar v0.8.1 en GitHub Actions.
 2. Actualizar SIN borrar el data container actual.
 3. Confirmar que la Nikaido Vault existente abre.
 4. Abrir varias fotos existentes.
@@ -180,5 +180,5 @@ Cuando vuelvas a tener acceso al iPhone:
 9. Comprobar que Nikaido Bridge solo marca éxito después del ACK final.
 10. Solo después considerar la build release-candidate.
 
-Lee `AUDIT_REPORT.md`, `RELEASE_NOTES_v0.8.0.md` y
-`BUILD_VALIDATION_v0.8.0.txt` para el detalle técnico.
+Lee `AUDIT_REPORT.md`, `RELEASE_NOTES_v0.8.1.md` y
+`BUILD_VALIDATION_v0.8.1.txt` para el detalle técnico.

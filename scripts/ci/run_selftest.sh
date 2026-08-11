@@ -30,7 +30,14 @@ run_test() {
     return "$COMPILE_STATUS"
   fi
 
-  echo "$NAME COMPILE: OK"
+  if grep -E -n \
+    '\.swift:[0-9]+:[0-9]+: warning:' \
+    "$COMPILE_LOG"; then
+    echo "$NAME COMPILE: FAIL (Swift source warnings)"
+    return 86
+  fi
+
+  echo "$NAME COMPILE: OK (warning-free)"
   echo "=== Run $NAME ==="
 
   set +e

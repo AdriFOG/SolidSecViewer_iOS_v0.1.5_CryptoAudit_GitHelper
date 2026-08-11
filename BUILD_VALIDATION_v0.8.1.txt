@@ -1,0 +1,11 @@
+project.pbxproj: /mnt/data/NikaidoExplorer_iOS_v0.8.1_DiagnosticsFix/SolidSecViewer.xcodeproj/project.pbxproj: OK
+Info.plist: /mnt/data/NikaidoExplorer_iOS_v0.8.1_DiagnosticsFix/SolidSecViewer/Info.plist: OK
+shell scripts: OK
+Python py_compile: OK
+Swift syntax parse: 30/30
+Project audit: SECURITY REGRESSION GUARDS: OK
+Lifecycle guard: LIFECYCLE GUARD: OK
+In-place video guard: INPLACE VIDEO GUARD: OK
+Nikaido reliability guard: NIKAIDO RELIABILITY GUARD: OK
+Diagnostics guard: V0.8.1 DIAGNOSTICS GUARD: OK
+GitHub Actions YAML: OK

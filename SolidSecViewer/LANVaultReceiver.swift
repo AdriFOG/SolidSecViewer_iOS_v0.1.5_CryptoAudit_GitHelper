@@ -1108,10 +1108,7 @@ private final class LANTransferServerCore {
                 contentSHA256: contentSHA256
             )
 
-            guard
-                var state = pendingState,
-                let collection
-            else {
+            guard var state = pendingState else {
                 throw LANTransferError.invalidMetadata
             }
 

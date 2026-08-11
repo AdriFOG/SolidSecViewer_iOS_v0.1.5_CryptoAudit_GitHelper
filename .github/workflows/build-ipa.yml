@@ -44,11 +44,12 @@ jobs:
             xcrun swiftc -frontend -swift-version 5 -parse "$source"
           done < <(find SolidSecViewer -maxdepth 1 -name '*.swift' -print | sort)
 
-          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py scripts/ci/test_lifecycle_policy.py scripts/ci/test_inplace_video_policy.py scripts/ci/test_nikaido_reliability.py
+          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py scripts/ci/test_lifecycle_policy.py scripts/ci/test_inplace_video_policy.py scripts/ci/test_nikaido_reliability.py scripts/ci/test_diagnostics_v081.py
           python3 scripts/ci/audit_project.py
           python3 scripts/ci/test_lifecycle_policy.py
           python3 scripts/ci/test_inplace_video_policy.py
           python3 scripts/ci/test_nikaido_reliability.py
+          python3 scripts/ci/test_diagnostics_v081.py
 
           if grep -R --line-number --fixed-strings "ContentUnavailableView" SolidSecViewer; then
             echo "ERROR: ContentUnavailableView requiere iOS 17+."
@@ -177,8 +178,8 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: NikaidoExplorer-LiveContainer-v0.8.0
-          path: build/package/NikaidoExplorer-LiveContainer-v0.8.0.ipa
+          name: NikaidoExplorer-LiveContainer-v0.8.1
+          path: build/package/NikaidoExplorer-LiveContainer-v0.8.1.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -186,7 +187,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: NikaidoExplorer-build-diagnostics-v0.8.0
+          name: NikaidoExplorer-build-diagnostics-v0.8.1
           path: |
             build/selftest/selftest.log
             build/selftest/SecCollectionSelfTest-compile.log
