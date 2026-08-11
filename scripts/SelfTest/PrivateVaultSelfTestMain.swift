@@ -82,8 +82,25 @@ struct PrivateVaultSelfTest {
 
             var large = Data(count: PrivateVaultCrypto.chunkSize * 2 + 12345)
             for index in large.indices {
-                large[index] = UInt8(truncatingIfNeeded: index &* 31 &+ 7)
+                // Include the chunk ordinal so adjacent full chunks cannot be
+                // byte-for-byte identical simply because the byte pattern wraps.
+                let chunkOrdinal = index / PrivateVaultCrypto.chunkSize
+                large[index] = UInt8(
+                    truncatingIfNeeded:
+                        index &* 31
+                        &+ chunkOrdinal &* 73
+                        &+ 7
+                )
             }
+
+            try require(
+                Data(large.prefix(PrivateVaultCrypto.chunkSize))
+                    != Data(
+                        large.dropFirst(PrivateVaultCrypto.chunkSize)
+                            .prefix(PrivateVaultCrypto.chunkSize)
+                    ),
+                "fixture de integridad generó chunks idénticos"
+            )
             try large.write(to: source)
 
             try PrivateVaultCrypto.encryptFile(
@@ -245,6 +262,20 @@ struct PrivateVaultSelfTest {
             let reorderedURL = root.appendingPathComponent("reordered.ssvb")
             try reordered.write(to: reorderedURL)
 
+            // Prove the fixture actually changes plaintext when intact GCM
+            // frames are reordered.
+            let reorderedPlaintext = try PrivateVaultCrypto.decryptFileToData(
+                source: reorderedURL,
+                key: key,
+                maxPlaintextBytes: large.count + 1
+            )
+            try require(
+                reorderedPlaintext != large,
+                "fixture de reordenamiento no alteró el plaintext"
+            )
+
+            // With the encrypted index's expected size + SHA-256, the same
+            // reordered legacy SSVB0001 blob must fail closed.
             do {
                 _ = try PrivateVaultCrypto.decryptFileToData(
                     source: reorderedURL,

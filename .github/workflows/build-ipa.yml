@@ -174,8 +174,8 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-LiveContainer-v0.6.1
-          path: build/package/SolidSecViewer-LiveContainer-v0.6.1.ipa
+          name: SolidSecViewer-LiveContainer-v0.6.2
+          path: build/package/SolidSecViewer-LiveContainer-v0.6.2.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -183,7 +183,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-build-diagnostics-v0.6.1
+          name: SolidSecViewer-build-diagnostics-v0.6.2
           path: |
             build/selftest/selftest.log
             build/selftest/SolidSecSelfTest-compile.log

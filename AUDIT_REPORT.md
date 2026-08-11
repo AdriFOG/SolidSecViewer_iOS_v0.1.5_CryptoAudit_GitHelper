@@ -1,4 +1,4 @@
-# SolidSec Viewer iOS v0.6.1 — Auditoría completa y hardening
+# SolidSec Viewer iOS v0.6.2 — Auditoría completa y hardening
 
 ## Alcance
 
@@ -19,7 +19,7 @@ La prioridad de esta revisión fue:
 
 > **Límite importante:** este entorno no tiene Xcode ni el iPhoneOS SDK. Aquí se
 > puede hacer parse Swift, validación PBX/plists/YAML/shell/Python y tests del lado
-> PC. La compilación real de v0.6.1 sigue siendo responsabilidad del workflow en
+> PC. La compilación real de v0.6.2 sigue siendo responsabilidad del workflow en
 > GitHub Actions con macOS/Xcode.
 
 ## Hallazgos de mayor severidad corregidos
@@ -283,7 +283,7 @@ Ver `BUILD_VALIDATION.txt` para el registro conciso. En esta entrega se ejecutó
 
 ## Pendiente conocido — no presentado como resuelto
 
-1. **Xcode v0.6.1:** todavía debe compilar en GitHub Actions.
+1. **Xcode v0.6.2:** todavía debe compilar en GitHub Actions.
 2. **LAN real:** todavía debe probarse PC <-> iPhone/LiveContainer.
 3. **Resume:** un corte de Wi-Fi obliga a repetir la transferencia.
 4. **ACK final:** Windows termina de enviar antes de recibir un mensaje explícito de
@@ -300,7 +300,7 @@ Ver `BUILD_VALIDATION.txt` para el registro conciso. En esta entrega se ejecutó
 
 ## Checkpoint recomendado
 
-1. GitHub Actions v0.6.1.
+1. GitHub Actions v0.6.2.
 2. Instalar IPA nueva.
 3. Colección `.sec` descartable pequeña.
 4. Transferir por LAN, cerrar app, reabrir y desbloquear.
@@ -309,7 +309,7 @@ Ver `BUILD_VALIDATION.txt` para el registro conciso. En esta entrega se ejecutó
 7. Solo entonces colección real de ~12 GB.
 
 
-## v0.6.1 — Hallazgos del diagnostics real de GitHub
+## v0.6.2 — Hallazgos del diagnostics real de GitHub
 
 El diagnostics de v0.6.0 mostró `iosbuild=success`, `validate=success`,
 `packages=success`, `pctest=success` y únicamente `selftest=failure`.
