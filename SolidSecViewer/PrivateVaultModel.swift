@@ -12,6 +12,7 @@ struct PrivateVaultEntry: Identifiable, Codable, Hashable, Sendable {
     let kind: PrivateVaultEntryKind
     var blobName: String?
     var originalSize: Int64
+    var contentSHA256: Data? = nil
     let createdAt: Date
 
     var fileExtension: String {

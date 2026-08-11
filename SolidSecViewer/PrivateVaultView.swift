@@ -11,9 +11,12 @@ struct PrivateVaultView: View {
     @State private var confirmPassword = ""
     @State private var currentFolderID: UUID?
     @State private var showImporter = false
+    @State private var showLANReceiver = false
     @State private var showNewFolder = false
     @State private var newFolderName = ""
     @State private var selectedEntry: PrivateVaultEntry?
+    @State private var selectedSecZip: PrivateVaultEntry?
+    @State private var selectedSecFolder: PrivateVaultEntry?
     @State private var entryToDelete: PrivateVaultEntry?
 
     var body: some View {
@@ -34,9 +37,38 @@ struct PrivateVaultView: View {
                 }
             }
         }
+        .sheet(isPresented: $showLANReceiver) {
+            LANReceiveView(
+                vault: vault,
+                parentID: currentFolderID
+            )
+        }
         .sheet(item: $selectedEntry) { entry in
             PrivateVaultMediaViewer(entry: entry)
                 .environmentObject(vault)
+        }
+        .sheet(item: $selectedSecZip) { entry in
+            StoredSecZipViewer(entry: entry)
+                .environmentObject(vault)
+        }
+        .sheet(item: $selectedSecFolder) { folder in
+            StoredSecFolderViewer(
+                privateVault: vault,
+                folder: folder
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didEnterBackgroundNotification
+        )) { _ in
+            selectedEntry = nil
+            selectedSecZip = nil
+            selectedSecFolder = nil
+            password = ""
+            confirmPassword = ""
+            newFolderName = ""
+            showImporter = false
+            showLANReceiver = false
+            showNewFolder = false
         }
         .alert("Nueva carpeta", isPresented: $showNewFolder) {
             TextField("Nombre", text: $newFolderName)
@@ -267,6 +299,14 @@ struct PrivateVaultView: View {
                 .buttonStyle(.bordered)
 
                 Button {
+                    showLANReceiver = true
+                } label: {
+                    Image(systemName: "wifi")
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityLabel("Recibir desde PC")
+
+                Button {
                     showImporter = true
                 } label: {
                     Image(systemName: "square.and.arrow.down")
@@ -293,10 +333,16 @@ struct PrivateVaultView: View {
     @ViewBuilder
     private func entryCard(_ entry: PrivateVaultEntry) -> some View {
         Button {
-            if entry.kind == .folder {
+            if entry.kind == .folder &&
+                entry.name.lowercased().hasSuffix(".sec")
+            {
+                selectedSecFolder = entry
+            } else if entry.kind == .folder {
                 currentFolderID = entry.id
             } else if entry.isImage {
                 selectedEntry = entry
+            } else if entry.fileExtension == "zip" {
+                selectedSecZip = entry
             }
         } label: {
             VStack(spacing: 8) {
@@ -332,6 +378,27 @@ struct PrivateVaultView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
+            if entry.kind == .folder &&
+                entry.name.lowercased().hasSuffix(".sec")
+            {
+                Button {
+                    selectedSecFolder = entry
+                } label: {
+                    Label(
+                        "Abrir galería .sec",
+                        systemImage: "lock.square.stack.fill"
+                    )
+                }
+            }
+
+            if entry.kind == .file && entry.fileExtension == "zip" {
+                Button {
+                    selectedSecZip = entry
+                } label: {
+                    Label("Abrir ZIP .sec", systemImage: "doc.zipper")
+                }
+            }
+
             Button(role: .destructive) {
                 entryToDelete = entry
             } label: {
@@ -341,6 +408,12 @@ struct PrivateVaultView: View {
     }
 
     private func icon(for entry: PrivateVaultEntry) -> String {
+        if entry.kind == .folder &&
+            entry.name.lowercased().hasSuffix(".sec")
+        {
+            return "lock.square.stack.fill"
+        }
+
         if entry.kind == .folder {
             return "folder.fill"
         }
@@ -376,7 +449,7 @@ struct MultiFilePicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: [.item],
-            asCopy: true
+            asCopy: false
         )
         picker.allowsMultipleSelection = true
         picker.delegate = context.coordinator
@@ -440,7 +513,7 @@ struct PrivateVaultMediaViewer: View {
         }
         .task {
             do {
-                let data = try vault.decryptFileData(entry)
+                let data = try await vault.decryptFileDataAsync(entry)
 
                 guard let decoded = UIImage(data: data) else {
                     errorText = "iOS no pudo decodificar esta imagen."

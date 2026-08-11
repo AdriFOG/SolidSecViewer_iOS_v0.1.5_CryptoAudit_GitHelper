@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[2]
+SRC = ROOT / "SolidSecViewer"
+PBX = ROOT / "SolidSecViewer.xcodeproj" / "project.pbxproj"
+
+swift_files = sorted(p.name for p in SRC.glob("*.swift"))
+pbx_text = PBX.read_text(encoding="utf-8")
+
+missing_refs = [name for name in swift_files if f"path = {name};" not in pbx_text]
+missing_sources = [
+    name for name in swift_files
+    if f"{name} in Sources" not in pbx_text
+]
+
+pbx_swift_paths = sorted(set(re.findall(r"path = ([A-Za-z0-9_+.-]+\.swift);", pbx_text)))
+stale_refs = [name for name in pbx_swift_paths if not (SRC / name).is_file()]
+
+if missing_refs or missing_sources or stale_refs:
+    if missing_refs:
+        print("Swift files missing PBX file refs:", missing_refs)
+    if missing_sources:
+        print("Swift files missing Sources build phase refs:", missing_sources)
+    if stale_refs:
+        print("Stale PBX Swift refs:", stale_refs)
+    raise SystemExit(1)
+
+required = {
+    "CFBundleExecutable": "$(EXECUTABLE_NAME)",
+    "CFBundlePackageType": "APPL",
+}
+
+info = (SRC / "Info.plist").read_text(encoding="utf-8")
+for key, value in required.items():
+    if f"<key>{key}</key>" not in info or value not in info:
+        print(f"Info.plist missing required {key}={value}")
+        raise SystemExit(1)
+
+print(f"PROJECT AUDIT: OK ({len(swift_files)} Swift sources referenced)")
+
+# Regression guards for bugs found during the v0.6.0 audit.
+private_session = (SRC / "PrivateVaultSession.swift").read_text(encoding="utf-8")
+vault_session = (SRC / "VaultSession.swift").read_text(encoding="utf-8")
+content_view = (SRC / "ContentView.swift").read_text(encoding="utf-8")
+lan_receiver = (SRC / "LANVaultReceiver.swift").read_text(encoding="utf-8")
+update_bat = (ROOT / "ACTUALIZAR_GITHUB.bat").read_text(encoding="utf-8")
+send_bat = (ROOT / "tools" / "LANTransfer" / "ENVIAR_SEC_A_IPHONE.bat").read_text(encoding="utf-8")
+
+create_start = private_session.find("func create(password:")
+create_busy = private_session.find("isBusy = true", create_start)
+create_artifact_guard = private_session.find(
+    "guard !Self.hasExistingVaultArtifacts()",
+    create_start,
+)
+if (
+    create_start < 0
+    or create_artifact_guard < 0
+    or create_busy < 0
+    or create_artifact_guard > create_busy
+):
+    print(
+        "Regression: create() must reject every existing vault artifact "
+        "before cleanup transaction"
+    )
+    raise SystemExit(1)
+
+if ".completeFileProtection" not in private_session:
+    print("Regression: protected atomic metadata writes missing")
+    raise SystemExit(1)
+
+if "configBackupURL" not in private_session or "indexBackupURL" not in private_session:
+    print("Regression: redundant protected vault metadata slots missing")
+    raise SystemExit(1)
+
+if "throw PrivateVaultError.indexMissing" not in private_session:
+    print("Regression: a missing index must fail closed, never become an empty vault")
+    raise SystemExit(1)
+
+lock_start = vault_session.find("func lock()")
+lock_end = vault_session.find("func decrypt(", lock_start)
+if lock_start < 0 or "isBusy = false" not in vault_session[lock_start:lock_end]:
+    print("Regression: VaultSession.lock() must clear isBusy")
+    raise SystemExit(1)
+
+if "Añadir ZIP a Mi bóveda y borrar original" in content_view:
+    print("Regression: large whole-ZIP vault import was re-enabled in primary UI")
+    raise SystemExit(1)
+
+if "handshakeTimeout" not in lan_receiver or "transferInactivityTimeout" not in lan_receiver:
+    print("Regression: LAN timeouts missing")
+    raise SystemExit(1)
+
+if "TcpClient" in send_bat or "BeginConnect" in send_bat:
+    print("Regression: destructive empty TCP preflight returned to Windows BAT")
+    raise SystemExit(1)
+
+if "tools\\LANTransfer\\.venv" not in update_bat or '"*.pyc"' not in update_bat:
+    print("Regression: Git helper no longer excludes PC venv/pyc")
+    raise SystemExit(1)
+
+model = (SRC / "PrivateVaultModel.swift").read_text(encoding="utf-8")
+crypto = (SRC / "PrivateVaultCrypto.swift").read_text(encoding="utf-8")
+
+if "contentSHA256" not in model or "expectedSHA256" not in crypto:
+    print("Regression: whole-file integrity binding missing from Private Vault")
+    raise SystemExit(1)
+
+if "expectedPlaintextSize" not in crypto or "integrityMismatch" not in crypto:
+    print("Regression: encrypted blob whole-file size validation missing")
+    raise SystemExit(1)
+
+if "hasExistingVaultArtifacts" not in private_session:
+    print("Regression: recovery artifacts could be overwritten by create()")
+    raise SystemExit(1)
+
+load_index = private_session.find("func loadIndex(key:")
+validate_index_decl = private_session.find("func validateLoadedIndex", load_index)
+if (
+    load_index < 0
+    or validate_index_decl < 0
+    or "try validateLoadedIndex(entries)"
+       not in private_session[load_index:validate_index_decl]
+):
+    print("Regression: primary semantic index validation must fall back to backup")
+    raise SystemExit(1)
+
+
+if 'Data("SSVLAN03".utf8)' not in lan_receiver or "expectedTransportSequence" not in lan_receiver:
+    print("Regression: LAN frames are no longer sequence-bound (replay/reorder risk)")
+    raise SystemExit(1)
+
+if "readBoundedFile" not in private_session or "maximumIndexBytes" not in private_session:
+    print("Regression: vault metadata reads lost their memory bounds")
+    raise SystemExit(1)
+
+# willResignActive must cover the UI immediately, but destructive session locking
+# belongs to didEnterBackground so the first Local Network permission prompt does
+# not cancel the LAN receiver before the user can approve it.
+resign_start = content_view.find("UIApplication.willResignActiveNotification")
+background_start = content_view.find("UIApplication.didEnterBackgroundNotification")
+if resign_start < 0 or background_start < 0:
+    print("Regression: privacy lifecycle notifications missing")
+    raise SystemExit(1)
+resign_slice = content_view[resign_start:background_start]
+if "PrivacyShield.show()" not in resign_slice or "lockForPrivacy()" in resign_slice:
+    print("Regression: resign-active should curtain only; background performs lock")
+    raise SystemExit(1)
+
+# A selected item that cannot be encrypted must fail the entire import. It must
+# never be silently skipped and then removed by post-commit picker cleanup.
+stage_start = private_session.find("func stageExternalImports")
+stage_end = private_session.find("func persistIndex", stage_start)
+if stage_start < 0 or stage_end < 0:
+    print("Regression: external import staging function missing")
+    raise SystemExit(1)
+stage_slice = private_session[stage_start:stage_end]
+if "throw PrivateVaultError.notAFile" not in stage_slice:
+    print("Regression: unsupported picker items can be skipped/deleted silently")
+    raise SystemExit(1)
+
+if "refreshIndexBackupFromPrimary" not in private_session:
+    print("Regression: delete recovery backup can resurrect deleted entries")
+    raise SystemExit(1)
+
+private_view = (SRC / "PrivateVaultView.swift").read_text(encoding="utf-8")
+if "asCopy: false" not in private_view or "asCopy: true" in private_view:
+    print("Regression: file picker can create unnecessary plaintext import copies")
+    raise SystemExit(1)
+
+sender = (ROOT / "tools" / "LANTransfer" / "send_sec_collection.py").read_text(
+    encoding="utf-8"
+)
+if 'MAGIC = b"SSVLAN03"' not in sender or "TransportSealer" not in sender:
+    print("Regression: Windows sender no longer matches sequence-bound LAN v3")
+    raise SystemExit(1)
+
+# Full-ZIP-to-vault migration UI/source was intentionally removed from the
+# primary product. Legacy ZIP viewing remains for already stored entries.
+if (SRC / "VaultZipImportSheet.swift").exists():
+    print("Regression: dead whole-ZIP vault import source returned")
+    raise SystemExit(1)
+
+print("SECURITY REGRESSION GUARDS: OK")
+

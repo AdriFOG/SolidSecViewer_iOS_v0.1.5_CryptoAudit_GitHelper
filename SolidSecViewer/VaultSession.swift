@@ -13,6 +13,7 @@ final class VaultSession: ObservableObject {
     private var salt = Data()
     private var iv = Data()
     private var didStartSecurityScope = false
+    private var generation: UInt64 = 0
 
     func setFolder(_ url: URL) {
         lock()
@@ -27,16 +28,36 @@ final class VaultSession: ObservableObject {
         errorMessage = nil
     }
 
+    func clearFolder() {
+        lock()
+
+        if didStartSecurityScope, let old = folderURL {
+            old.stopAccessingSecurityScopedResource()
+        }
+
+        didStartSecurityScope = false
+        folderURL = nil
+        errorMessage = nil
+    }
+
     func unlock(password: String) async {
         guard let folderURL else { return }
 
         isBusy = true
         errorMessage = nil
+        let operationGeneration = generation
 
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 try Self.parseFolder(folderURL: folderURL, password: password)
             }.value
+
+            guard
+                generation == operationGeneration,
+                self.folderURL == folderURL
+            else {
+                return
+            }
 
             self.key = result.key
             self.salt = result.salt
@@ -44,18 +65,27 @@ final class VaultSession: ObservableObject {
             self.items = result.items
             self.isUnlocked = true
         } catch {
-            self.errorMessage = error.localizedDescription
-            self.items = []
-            self.isUnlocked = false
-            zeroize()
+            // A parser task may finish after the user locked, changed folders,
+            // or started a newer unlock. Never let a stale failure overwrite the
+            // state/error of the current session.
+            if generation == operationGeneration, self.folderURL == folderURL {
+                self.errorMessage = error.localizedDescription
+                self.items = []
+                self.isUnlocked = false
+                zeroize()
+            }
         }
 
-        isBusy = false
+        if generation == operationGeneration {
+            isBusy = false
+        }
     }
 
     func lock() {
+        generation &+= 1
         items = []
         isUnlocked = false
+        isBusy = false
         errorMessage = nil
         zeroize()
     }
@@ -73,6 +103,56 @@ final class VaultSession: ObservableObject {
         let header = raw.prefix(SolidCrypto.headerSize)
         let expected = salt + iv
         guard header.prefix(32) == expected else {
+            throw SolidCryptoError.badHeader
+        }
+
+        let ciphertext = raw.dropFirst(SolidCrypto.headerSize)
+        return try SolidCrypto.aesCTR(Data(ciphertext), key: key, iv: iv)
+    }
+
+    func decryptAsync(_ item: VaultItem) async throws -> Data {
+        guard isUnlocked else {
+            throw SolidCryptoError.badPasswordOrUnsupported
+        }
+
+        let keyCopy = key
+        let saltCopy = salt
+        let ivCopy = iv
+        let operationGeneration = generation
+
+        let data = try await Task.detached(priority: .userInitiated) {
+            try Self.decryptFile(
+                item: item,
+                key: keyCopy,
+                salt: saltCopy,
+                iv: ivCopy
+            )
+        }.value
+
+        guard
+            isUnlocked,
+            generation == operationGeneration
+        else {
+            throw SolidCryptoError.badPasswordOrUnsupported
+        }
+
+        return data
+    }
+
+    nonisolated private static func decryptFile(
+        item: VaultItem,
+        key: Data,
+        salt: Data,
+        iv: Data
+    ) throws -> Data {
+        let raw = try Data(contentsOf: item.encryptedURL, options: [.mappedIfSafe])
+
+        guard raw.count >= SolidCrypto.headerSize else {
+            throw SolidCryptoError.badHeader
+        }
+
+        let expected = salt + iv
+        guard raw.prefix(32) == expected else {
             throw SolidCryptoError.badHeader
         }
 
@@ -106,13 +186,21 @@ final class VaultSession: ObservableObject {
         let fm = FileManager.default
         let urls = try fm.contentsOfDirectory(
             at: folderURL,
-            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey],
             options: [.skipsSubdirectoryDescendants]
         )
+
+        for url in urls {
+            let values = try url.resourceValues(forKeys: [.isDirectoryKey])
+            if values.isDirectory == true {
+                throw SolidCryptoError.nestedFoldersUnsupported
+            }
+        }
 
         var foundKey: Data?
         var foundSalt: Data?
         var foundIV: Data?
+        var derivedKeysByHeader: [Data: Data] = [:]
 
         for url in urls {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
@@ -125,7 +213,19 @@ final class VaultSession: ObservableObject {
 
             let salt = Data(header[0..<16])
             let iv = Data(header[16..<32])
-            let key = try SolidCrypto.deriveKey(password: password, salt: salt)
+            let cryptHeader = Data(header[0..<32])
+            let key: Data
+
+            if let cached = derivedKeysByHeader[cryptHeader] {
+                key = cached
+            } else {
+                let derived = try SolidCrypto.deriveKey(
+                    password: password,
+                    salt: salt
+                )
+                derivedKeysByHeader[cryptHeader] = derived
+                key = derived
+            }
 
             guard
                 let encName = SolidCrypto.decodeBase64URL(url.lastPathComponent),

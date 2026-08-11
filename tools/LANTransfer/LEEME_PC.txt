@@ -1,0 +1,76 @@
+SOLIDSEC PC COMPANION v0.6.0
+============================
+
+OBJETIVO
+--------
+Enviar una colección Solid Explorer `.sec` grande desde Windows al iPhone sin
+subirla a iCloud y sin almacenar el ZIP completo en el teléfono.
+
+PRIMERA VEZ
+-----------
+Ejecuta:
+  PREPARAR_PC.bat
+
+El preparador:
+- busca Python 3 usable de 64 bits;
+- si no existe intenta instalar Python 3.12 con winget;
+- crea `tools\LANTransfer\.venv`;
+- instala `requirements.txt`;
+- verifica sender + AES-GCM.
+
+El venv es exclusivo de SolidSec.
+
+TRANSFERIR
+----------
+iPhone:
+  SolidSec -> Mi bóveda -> desbloquear -> botón Wi-Fi
+
+Windows:
+  ENVIAR_SEC_A_IPHONE.bat
+
+Puedes arrastrar:
+- un ZIP que contenga la `.sec`; o
+- una carpeta `.sec` plana.
+
+Introduce IP, puerto y código mostrados por el iPhone.
+
+IMPORTANTE
+----------
+El BAT NO abre una conexión TCP de prueba. El sender real crea la única conexión.
+La PC inicia una conexión SALIENTE; no se crea una regla de Firewall entrante.
+
+QUÉ VIAJA
+---------
+El ZIP no viaja. El sender abre el ZIP en streaming y manda solo los archivos
+cifrados de la colección seleccionada.
+
+El transporte usa SolidSec LAN v3 (`SSVLAN03`): AES-GCM + contador de secuencia
+autenticado. El iPhone vuelve a envolver cada archivo con AES-256-GCM de Mi bóveda.
+
+VALIDACIONES PC
+---------------
+- máximo 500000 entradas del ZIP durante discovery;
+- máximo 200000 archivos en la colección;
+- máximo 100 GB;
+- nombres <=1024 bytes UTF-8;
+- duplicados rechazados;
+- symlinks rechazados;
+- rutas absolutas/traversal rechazadas;
+- ZIP protegido con contraseña rechazado (la `.sec` ya está cifrada);
+- subcarpetas `.sec` rechazadas hasta validar su semántica.
+
+PARA UNA COLECCIÓN GRANDE
+-------------------------
+- PC por Ethernet si puedes;
+- iPhone con Wi-Fi estable;
+- iPhone cargando;
+- SolidSec en primer plano;
+- no cambies de red durante el envío.
+
+NO BORRES EL ORIGINAL cuando Windows termine. Espera la confirmación del iPhone:
+  “Colección .sec guardada”
+
+LIMITACIONES
+------------
+- todavía no hay resume;
+- todavía no hay ACK final del commit hacia Windows.

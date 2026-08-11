@@ -10,6 +10,7 @@ on:
       - "SolidSecViewer/**"
       - "SolidSecViewer.xcodeproj/**"
       - "scripts/**"
+      - "tools/**"
       - ".github/workflows/build-ipa.yml"
 
 permissions:
@@ -19,14 +20,14 @@ jobs:
   build:
     name: Audit, build and validate unsigned iOS IPA
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Toolchain preflight
         run: |
@@ -36,6 +37,15 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           swiftc --version
           plutil -lint SolidSecViewer/Info.plist
+          plutil -lint SolidSecViewer.xcodeproj/project.pbxproj
+          plutil -extract NSLocalNetworkUsageDescription raw SolidSecViewer/Info.plist >/dev/null
+
+          while IFS= read -r source; do
+            xcrun swiftc -frontend -swift-version 5 -parse "$source"
+          done < <(find SolidSecViewer -maxdepth 1 -name '*.swift' -print | sort)
+
+          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py
+          python3 scripts/ci/audit_project.py
 
           if grep -R --line-number --fixed-strings "ContentUnavailableView" SolidSecViewer; then
             echo "ERROR: ContentUnavailableView requiere iOS 17+."
@@ -52,6 +62,29 @@ jobs:
         continue-on-error: true
         run: bash scripts/ci/run_selftest.sh
 
+      - name: Resolve Swift packages
+        id: packages
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p build/packages
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project SolidSecViewer.xcodeproj \
+            -clonedSourcePackagesDirPath "$PWD/build/packages/SourcePackages" \
+            2>&1 | tee build/packages/resolve.log
+
+      - name: PC companion self-test
+        id: pctest
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m venv build/pc-selftest-venv
+          build/pc-selftest-venv/bin/python -m pip install --upgrade pip
+          build/pc-selftest-venv/bin/python -m pip install -r tools/LANTransfer/requirements.txt
+          build/pc-selftest-venv/bin/python scripts/ci/test_pc_sender.py \
+            2>&1 | tee build/pc-selftest.log
+
       - name: Build arm64 iPhone app
         id: iosbuild
         continue-on-error: true
@@ -64,6 +97,7 @@ jobs:
           xcodebuild \
             -project SolidSecViewer.xcodeproj \
             -target SolidSecViewer \
+            -clonedSourcePackagesDirPath "$PWD/build/packages/SourcePackages" \
             -configuration Release \
             -sdk iphoneos \
             -resultBundlePath "$PWD/build/ios/SolidSecViewer.xcresult" \
@@ -92,6 +126,8 @@ jobs:
           mkdir -p build/diagnostics
           {
             echo "selftest=${{ steps.selftest.outcome }}"
+            echo "packages=${{ steps.packages.outcome }}"
+            echo "pctest=${{ steps.pctest.outcome }}"
             echo "iosbuild=${{ steps.iosbuild.outcome }}"
             echo "validate=${{ steps.validate.outcome }}"
           } | tee build/diagnostics/status.txt
@@ -107,6 +143,8 @@ jobs:
         run: |
           set -euo pipefail
           test "${{ steps.selftest.outcome }}" = "success"
+          test "${{ steps.packages.outcome }}" = "success"
+          test "${{ steps.pctest.outcome }}" = "success"
           test "${{ steps.iosbuild.outcome }}" = "success"
           test "${{ steps.validate.outcome }}" = "success"
 
@@ -116,8 +154,8 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-LiveContainer-v0.2.1
-          path: build/package/SolidSecViewer-LiveContainer-v0.2.1.ipa
+          name: SolidSecViewer-LiveContainer-v0.6.0
+          path: build/package/SolidSecViewer-LiveContainer-v0.6.0.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -125,13 +163,15 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-build-diagnostics-v0.2.1
+          name: SolidSecViewer-build-diagnostics-v0.6.0
           path: |
             build/selftest/selftest.log
             build/selftest/SolidSecSelfTest-compile.log
             build/selftest/SolidSecSelfTest-runtime.log
             build/selftest/PrivateVaultSelfTest-compile.log
             build/selftest/PrivateVaultSelfTest-runtime.log
+            build/packages/resolve.log
+            build/pc-selftest.log
             build/ios/xcodebuild.log
             build/ios/SolidSecViewer.xcresult
             build/validation/validation.log

@@ -35,5 +35,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>SolidSec usa la red local únicamente cuando eliges recibir un archivo directamente desde tu PC hacia Mi bóveda cifrada.</string>
 </dict>
 </plist>

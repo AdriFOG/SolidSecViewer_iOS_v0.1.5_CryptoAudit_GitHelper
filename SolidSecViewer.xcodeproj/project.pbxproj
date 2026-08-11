@@ -18,6 +18,15 @@
         A010 /* PrivateVaultModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* PrivateVaultModel.swift */; };
         A011 /* PrivateVaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012 /* PrivateVaultSession.swift */; };
         A012 /* PrivateVaultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B013 /* PrivateVaultView.swift */; };
+        A013 /* ZipFilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B014 /* ZipFilePicker.swift */; };
+        A014 /* SecZipImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B015 /* SecZipImporter.swift */; };
+        A015 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = Z001 /* ZIPFoundation */; };
+        A016 /* PrivacyShield.swift in Sources */ = {isa = PBXBuildFile; fileRef = B016 /* PrivacyShield.swift */; };
+        A018 /* StoredSecZipViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B018 /* StoredSecZipViewer.swift */; };
+        A019 /* LANVaultReceiver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B019 /* LANVaultReceiver.swift */; };
+        A020 /* LANReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B020 /* LANReceiveView.swift */; };
+        A021 /* StoredSecCollectionViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B021 /* StoredSecCollectionViewer.swift */; };
+        A022 /* ImageDownsampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B022 /* ImageDownsampler.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +43,14 @@
         B011 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultModel.swift; sourceTree = "<group>"; };
         B012 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultSession.swift; sourceTree = "<group>"; };
         B013 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultView.swift; sourceTree = "<group>"; };
+        B014 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipFilePicker.swift; sourceTree = "<group>"; };
+        B015 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecZipImporter.swift; sourceTree = "<group>"; };
+        B016 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyShield.swift; sourceTree = "<group>"; };
+        B018 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredSecZipViewer.swift; sourceTree = "<group>"; };
+        B019 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANVaultReceiver.swift; sourceTree = "<group>"; };
+        B020 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANReceiveView.swift; sourceTree = "<group>"; };
+        B021 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredSecCollectionViewer.swift; sourceTree = "<group>"; };
+        B022 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDownsampler.swift; sourceTree = "<group>"; };
         B100 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SolidSecViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -41,7 +58,9 @@
         C001 = {
             isa = PBXFrameworksBuildPhase;
             buildActionMask = 2147483647;
-            files = ();
+            files = (
+                A015 /* ZIPFoundation in Frameworks */,
+            );
             runOnlyForDeploymentPostprocessing = 0;
         };
 /* End PBXFrameworksBuildPhase section */
@@ -58,7 +77,7 @@
         D002 = {
             isa = PBXGroup;
             children = (
-                B001, B002, B003, B004, B005, B006, B007, B008, B009, B010, B011, B012, B013,
+                B001, B002, B003, B004, B005, B006, B007, B008, B009, B010, B011, B012, B013, B014, B015, B016,  B018, B019, B020, B021, B022,
             );
             path = SolidSecViewer;
             sourceTree = "<group>";
@@ -83,6 +102,9 @@
             buildRules = ();
             dependencies = ();
             name = SolidSecViewer;
+            packageProductDependencies = (
+                Z001 /* ZIPFoundation */,
+            );
             productName = SolidSecViewer;
             productReference = B100;
             productType = "com.apple.product-type.application";
@@ -107,6 +129,9 @@
             productRefGroup = D003;
             projectDirPath = "";
             projectRoot = "";
+            packageReferences = (
+                Y001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
+            );
             targets = (E001,);
         };
 /* End PBXProject section */
@@ -124,10 +149,30 @@
         C002 = {
             isa = PBXSourcesBuildPhase;
             buildActionMask = 2147483647;
-            files = (A001,A002,A003,A004,A005,A006,A007,A008,A009,A010,A011,A012,);
+            files = (A001,A002,A003,A004,A005,A006,A007,A008,A009,A010,A011,A012,A013,A014,A016,A018,A019,A020,A021,A022,);
             runOnlyForDeploymentPostprocessing = 0;
         };
 /* End PBXSourcesBuildPhase section */
+
+
+/* Begin XCRemoteSwiftPackageReference section */
+        Y001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
+            isa = XCRemoteSwiftPackageReference;
+            repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
+            requirement = {
+                kind = exactVersion;
+                version = 0.9.20;
+            };
+        };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+        Z001 /* ZIPFoundation */ = {
+            isa = XCSwiftPackageProductDependency;
+            package = Y001 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+            productName = ZIPFoundation;
+        };
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
         G001 = {
@@ -156,12 +201,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 11;
+                CURRENT_PROJECT_VERSION = 17;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.2.1;
+                MARKETING_VERSION = 0.6.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;
@@ -174,12 +219,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 11;
+                CURRENT_PROJECT_VERSION = 17;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.2.1;
+                MARKETING_VERSION = 0.6.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;

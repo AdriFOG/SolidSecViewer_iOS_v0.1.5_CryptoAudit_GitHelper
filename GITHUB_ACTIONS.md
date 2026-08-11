@@ -1,85 +1,68 @@
-BUILD CON GITHUB ACTIONS
-========================
+# SolidSec Viewer v0.6.0 — GitHub Actions
 
-Esto permite compilar SolidSec Viewer para iPhone SIN tener una Mac propia.
+El workflow `.github/workflows/build-ipa.yml` compila y valida la app en un runner
+macOS porque el entorno local de este proyecto no tiene el SDK de iPhone.
 
-Qué hace
---------
-- GitHub presta un runner macOS.
-- Xcode compila el proyecto para iphoneos.
-- El build se hace sin firma.
-- El .app se empaqueta como Payload/SolidSecViewer.app dentro de un .ipa.
-- GitHub publica el IPA como artifact del workflow.
+## Uso
 
-Cómo usar
----------
-1. Crea un repositorio de GitHub, preferiblemente PRIVADO.
-2. Sube TODO el contenido de esta carpeta a la raíz del repo.
-3. Abre la pestaña Actions.
-4. Entra a "Build SolidSec Viewer IPA".
-5. Pulsa "Run workflow".
-6. Cuando termine, abre la ejecución y baja el artifact:
-   SolidSecViewer-LiveContainer
-7. Dentro estará:
-   SolidSecViewer-LiveContainer-v0.2.1.ipa
-8. Pásalo al iPhone y en LiveContainer usa + para seleccionar el IPA.
+1. Descomprime esta build.
+2. Ejecuta `ACTUALIZAR_GITHUB.bat` desde la raíz.
+3. El BAT reutiliza el mismo repositorio guardado y hace push de esta versión.
+4. Abre **Actions -> Build SolidSec Viewer IPA**.
+5. Espera a que termine el job completo.
+6. Descarga el artifact `SolidSecViewer-LiveContainer-v0.6.0`.
+7. Dentro estará `SolidSecViewer-LiveContainer-v0.6.0.ipa`.
 
-Firma
------
-El workflow produce un IPA SIN FIRMA a propósito.
+## Qué valida el workflow
 
-LiveContainer incluye su propio flujo para preparar/firmar apps invitadas. Para
-este proyecto no hace falta subir certificados Apple, .p12 ni provisioning profiles
-a GitHub.
+Antes de empaquetar la IPA se ejecutan varias puertas independientes:
 
-Privacidad
-----------
-El repositorio NO debe contener:
-- fotos privadas,
-- videos privados,
-- carpetas .sec reales,
-- contraseñas,
-- claves VeraCrypt.
+- `plutil` sobre `Info.plist` y `project.pbxproj`.
+- Parse de todos los `.swift` del target.
+- Auditoría automática de que cada fuente Swift esté referenciada por el proyecto.
+- Self-test PBKDF2/AES-CTR/parser `.sec`.
+- Self-test de la bóveda AES-GCM/chunked encryption.
+- Resolución explícita de ZIPFoundation.
+- Self-test del sender de Windows en un venv limpio.
+- Build arm64 para `iphoneos` sin firma.
+- Validación de `CFBundleExecutable`, bundle type, Mach-O, arm64, `__PAGEZERO` y
+  dependencias del binario.
+- Construcción y prueba de la estructura final de la IPA.
 
-Solo debe contener código fuente.
+Si cualquiera de las puertas falla, la publicación de la IPA queda bloqueada.
 
-Consejo: usa un repositorio PRIVADO mientras desarrollamos.
+## Diagnósticos
 
-File Picker en LiveContainer
-----------------------------
-LiveContainer documenta que algunas apps invitadas pueden tener problemas con el
-selector de archivos. Si el selector de carpeta no abre o no devuelve la carpeta,
-entra a los ajustes específicos de SolidSec Viewer en LiveContainer y prueba la
-opción "Fix File Picker".
+Cuando falla el job se intenta subir otro artifact:
 
+`SolidSecViewer-build-diagnostics-v0.6.0`
 
-IMPORTANTE PARA ACTUALIZAR DESDE v0.1
-------------------------------------
-Borra de LiveContainer la copia anterior de SolidSec Viewer antes de importar el
-nuevo IPA v0.2.1. Así evitamos que LiveContainer reutilice el bundle roto/caché
-anterior.
+Incluye, cuando existan:
+- logs de self-tests;
+- log de resolución SPM;
+- log del PC Companion;
+- `xcodebuild.log`;
+- `.xcresult`;
+- logs Mach-O/bundle;
+- `status.txt` con el resultado de cada etapa;
+- resumen de errores/warnings del compilador.
 
+Si la build falla, descarga ese ZIP y pásalo para revisar el error exacto.
 
-FIX v0.2.1
-----------
-Ya no se usa el flag de DerivedData personalizado junto con -target.
-El producto se coloca directamente en build/Products.
+## Dependencia Swift
 
+ZIPFoundation está fijado en el proyecto para leer ZIPs en el modo de compatibilidad.
+La ruta LAN recomendada para colecciones grandes NO manda el ZIP al iPhone: el
+sender de Windows abre el ZIP localmente y manda solo los archivos `.sec` cifrados.
 
-FIX v0.2.1
-----------
-- Compatible con deployment target iOS 16: se quitó ContentUnavailableView (iOS 17).
-- Eliminado toolbar ambiguo; botón Bloquear está dentro de la galería.
-- Workflow usa solo `build`, no `clean build`, después de `rm -rf build`.
+## Firma y LiveContainer
 
+La IPA se construye sin firma Apple deliberadamente. No metas `.p12`, `.p8`,
+`.mobileprovision` ni certificados al repo. LiveContainer se encarga de su propio
+flujo de preparación/firma de la app invitada.
 
-AUDITED CI v0.2.1
------------------
-El workflow ahora:
-- fija Xcode 16.4,
-- usa actions/checkout@v5 y upload-artifact@v6 (Node 24),
-- ejecuta un self-test criptográfico y de formato .sec,
-- construye arm64 para iphoneos,
-- valida el Mach-O pensando en LiveContainer,
-- prueba el ZIP/IPA,
-- sube .xcresult y logs cuando algo falla.
+## Privacidad del repositorio
+
+Usa preferiblemente un repo privado. El repositorio debe contener solo código y
+fixtures sintéticos. Nunca subas material real de la bóveda, carpetas `.sec`, ZIPs
+privados, claves o contraseñas.

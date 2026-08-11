@@ -111,8 +111,8 @@ REM SOURCE_DIR usa %CD% y NO %~dp0 para evitar que una barra invertida final
 REM rompa el primer parametro entre comillas de ROBOCOPY.
 
 robocopy "%SOURCE_DIR%" "%TEMP_REPO%" /E /R:2 /W:1 /NFL /NDL /NJH /NJS /NP /XJ ^
-  /XD "%SOURCE_DIR%\.git" "%SOURCE_DIR%\build" "%SOURCE_DIR%\DerivedData" "%SOURCE_DIR%\.swiftpm" ^
-  /XF "*.sec" "*.ipa" "*.zip" "*.xcresult" "*.p12" "*.p8" "*.mobileprovision" "*.cer" ".env" ".env.*" "secrets.*"
+  /XD "%SOURCE_DIR%\.git" "%SOURCE_DIR%\build" "%SOURCE_DIR%\DerivedData" "%SOURCE_DIR%\.swiftpm" "%SOURCE_DIR%\tools\LANTransfer\.venv" "%SOURCE_DIR%\tools\LANTransfer\__pycache__" "%SOURCE_DIR%\scripts\ci\__pycache__" ^
+  /XF "*.sec" "*.ipa" "*.zip" "*.xcresult" "*.p12" "*.p8" "*.mobileprovision" "*.cer" ".env" ".env.*" "secrets.*" "*.pyc"
 
 set "ROBO=!ERRORLEVEL!"
 if !ROBO! GEQ 8 (

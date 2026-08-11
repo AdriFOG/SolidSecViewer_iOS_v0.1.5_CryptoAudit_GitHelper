@@ -12,7 +12,15 @@ struct ContentView: View {
 
     @State private var mode: AppMode?
     @State private var showFolderPicker = false
+    @State private var showZipPicker = false
     @State private var password = ""
+    @State private var zipExtractionRoot: URL?
+    @State private var zipDetectedPath: String?
+    @State private var zipImportError: String?
+    @State private var isImportingZip = false
+    @State private var selectedZipSourceURL: URL?
+    @State private var showScreenshotWarning = false
+    @State private var zipOperationID = UUID()
     @State private var selectedItem: VaultItem?
     @State private var showHidden = false
     @State private var search = ""
@@ -45,22 +53,102 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showFolderPicker) {
             FolderPicker { url in
+                cleanupZipExtraction(clearVault: false)
+                zipDetectedPath = nil
+                zipImportError = nil
                 vault.setFolder(url)
+            }
+        }
+        .sheet(isPresented: $showZipPicker) {
+            ZipFilePicker { url in
+                Task {
+                    await importSecZip(url)
+                }
             }
         }
         .sheet(item: $selectedItem) { item in
             MediaViewer(item: item)
                 .environmentObject(vault)
         }
+        .onAppear {
+            if PrivacyShield.isScreenCaptureActive() {
+                PrivacyShield.show(
+                    message: "Grabación o duplicación de pantalla detectada"
+                )
+                lockForPrivacy()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.willResignActiveNotification
         )) { _ in
-            lockForPrivacy()
+            // Cover immediately so app-switcher snapshots / transient system UI
+            // never expose the vault. Do NOT destroy the session here: system
+            // permission prompts (notably Local Network on first LAN use) can make
+            // the app temporarily inactive without actually backgrounding it.
+            PrivacyShield.show()
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.didEnterBackgroundNotification
         )) { _ in
+            PrivacyShield.show()
             lockForPrivacy()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didBecomeActiveNotification
+        )) { _ in
+            if PrivacyShield.isScreenCaptureActive() {
+                PrivacyShield.show(
+                    message: "Grabación o duplicación de pantalla detectada"
+                )
+                lockForPrivacy()
+            } else {
+                PrivacyShield.hide()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIScreen.capturedDidChangeNotification
+        )) { notification in
+            let captured = (notification.object as? UIScreen)?.isCaptured
+                ?? PrivacyShield.isScreenCaptureActive()
+
+            if captured {
+                PrivacyShield.show(
+                    message: "Grabación o duplicación de pantalla detectada"
+                )
+                lockForPrivacy()
+            } else if UIApplication.shared.applicationState == .active {
+                PrivacyShield.hide()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.userDidTakeScreenshotNotification
+        )) { _ in
+            // Public iOS APIs notify AFTER a screenshot was taken; we cannot
+            // retroactively prevent it. Lock immediately so subsequent content
+            // is protected.
+            PrivacyShield.show(message: "Captura detectada")
+            lockForPrivacy()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                guard
+                    UIApplication.shared.applicationState == .active,
+                    !PrivacyShield.isScreenCaptureActive()
+                else {
+                    return
+                }
+
+                PrivacyShield.hide()
+                showScreenshotWarning = true
+            }
+        }
+        .alert("Captura detectada", isPresented: $showScreenshotWarning) {
+            Button("Entendido", role: .cancel) {}
+        } message: {
+            Text(
+                "iOS avisa a la app después de hacer una captura. "
+                + "SolidSec bloqueó las bóvedas inmediatamente, pero no puede "
+                + "borrar una captura que el sistema ya guardó."
+            )
         }
     }
 
@@ -69,6 +157,65 @@ struct ContentView: View {
         privateVault.lock()
         selectedItem = nil
         password = ""
+
+        // ZIP extraction contains only the already-encrypted .sec blobs, but
+        // remove the temporary copy when the app backgrounds to avoid wasting
+        // storage and to keep the external source ephemeral.
+        cleanupZipExtraction(clearVault: true)
+    }
+
+    private func importSecZip(_ url: URL) async {
+        cleanupZipExtraction(clearVault: true)
+        let operation = UUID()
+        zipOperationID = operation
+
+        zipImportError = nil
+        zipDetectedPath = nil
+        selectedZipSourceURL = url
+        isImportingZip = true
+
+        do {
+            let result = try await SecZipImporter.importArchive(at: url)
+
+            guard zipOperationID == operation, !Task.isCancelled else {
+                try? FileManager.default.removeItem(at: result.extractionRootURL)
+                return
+            }
+
+            zipExtractionRoot = result.extractionRootURL
+            zipDetectedPath = result.detectedPath
+            vault.setFolder(result.secFolderURL)
+        } catch {
+            if zipOperationID == operation {
+                zipImportError = error.localizedDescription
+                selectedZipSourceURL = nil
+            }
+        }
+
+        if zipOperationID == operation {
+            isImportingZip = false
+        }
+    }
+
+    private func cleanupZipExtraction(clearVault: Bool) {
+        zipOperationID = UUID()
+        isImportingZip = false
+
+        if clearVault {
+            vault.clearFolder()
+        }
+
+        if let root = zipExtractionRoot {
+            try? FileManager.default.removeItem(at: root)
+            zipExtractionRoot = nil
+        }
+
+        zipDetectedPath = nil
+        selectedZipSourceURL = nil
+
+        if clearVault {
+            zipImportError = nil
+        }
     }
 
     private var home: some View {
@@ -137,7 +284,7 @@ struct ContentView: View {
 
             Spacer()
 
-            Text("Sin servidor • sin nube • bloqueo al salir")
+            Text("Sin nube • red local solo bajo demanda • bloqueo al salir")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.bottom)
@@ -160,7 +307,7 @@ struct ContentView: View {
         VStack(spacing: 18) {
             HStack {
                 Button {
-                    vault.lock()
+                    cleanupZipExtraction(clearVault: true)
                     mode = nil
                 } label: {
                     Label("Inicio", systemImage: "chevron.left")
@@ -176,26 +323,73 @@ struct ContentView: View {
                 .font(.system(size: 58))
                 .foregroundStyle(.secondary)
 
-            Text("Abrir carpeta .sec")
+            Text("Abrir Solid Explorer .sec")
                 .font(.title2.bold())
 
-            Text(vault.folderURL?.lastPathComponent ?? "Ninguna carpeta seleccionada")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+            Text(
+                vault.folderURL?.lastPathComponent
+                ?? "Selecciona un ZIP que contenga tu carpeta .sec"
+            )
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .lineLimit(3)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal)
+
+            Button {
+                showZipPicker = true
+            } label: {
+                Label("Abrir ZIP con carpeta .sec", systemImage: "doc.zipper")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isImportingZip)
+
+            if isImportingZip {
+                ProgressView("Buscando y extrayendo .sec…")
+            }
+
+            if let detected = zipDetectedPath {
+                Label(
+                    "Encontrada automáticamente: \(detected)",
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.green)
                 .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+                if selectedZipSourceURL != nil {
+                    Text(
+                        "Para guardar colecciones grandes en Mi bóveda sin duplicar "
+                        + "12–24 GB temporales, usa Mi bóveda → Wi‑Fi → Recibir .sec "
+                        + "desde PC. El modo LAN guarda solo los archivos .sec cifrados."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+                }
+            }
+
+            if let zipImportError {
+                Text(zipImportError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+            }
 
             Button {
                 showFolderPicker = true
             } label: {
-                Label("Elegir carpeta .sec", systemImage: "folder")
+                Label("O intentar elegir carpeta directamente", systemImage: "folder")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
 
             Text(
-                "En el selector de iOS entra a la carpeta y toca “Abrir”. "
-                + "Si LiveContainer no devuelve la carpeta, activa Fix File Picker "
-                + "para SolidSec Viewer."
+                "El ZIP puede contener otras carpetas: SolidSec busca automáticamente "
+                + "la mejor carpeta .sec y extrae únicamente ese subárbol. "
+                + "La selección directa de carpetas se conserva como alternativa."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -240,7 +434,7 @@ struct ContentView: View {
         VStack(spacing: 8) {
             HStack {
                 Button {
-                    vault.lock()
+                    cleanupZipExtraction(clearVault: true)
                     selectedItem = nil
                     mode = nil
                 } label: {

@@ -27,7 +27,7 @@ struct MediaViewer: View {
                             .foregroundStyle(.white)
                             .font(.title2.bold())
 
-                        Text("El streaming cifrado con AVPlayer entra en la v0.2.")
+                        Text("Video por rangos cifrados aún pendiente; SolidSec no crea una copia plaintext completa.")
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -57,7 +57,7 @@ struct MediaViewer: View {
             guard item.isImage else { return }
 
             do {
-                let data = try vault.decrypt(item)
+                let data = try await vault.decryptAsync(item)
                 image = UIImage(data: data)
 
                 if image == nil {

@@ -1,61 +1,48 @@
-GITHUB REPO HELPER
-==================
+SOLIDSEC — GITHUB REPO HELPER v0.6.0
+===================================
 
-Usa UN SOLO repositorio permanente para SolidSec Viewer.
+Usa UN SOLO repositorio permanente.
 
 PRIMERA VEZ
 -----------
-Ejecuta:
-  CREAR_REPO_GITHUB.bat
-
-Hace:
-- comprueba Git y GitHub CLI;
-- ejecuta gh auth login si hace falta;
-- crea el repo;
-- primer commit/push;
-- guarda OWNER/REPO en:
-  %LOCALAPPDATA%\SolidSecViewer\github_repo.txt
+CREAR_REPO_GITHUB.bat
 
 BUILDS SIGUIENTES
 -----------------
-Ejecuta:
-  ACTUALIZAR_GITHUB.bat
+ACTUALIZAR_GITHUB.bat
 
-Puedes descomprimir cada build en una carpeta nueva. El BAT:
-1. lee el repo guardado;
-2. lo clona a TEMP;
-3. reemplaza el contenido por el build actual;
-4. git add -A;
-5. crea commit con fecha/hora;
-6. push;
-7. borra la copia temporal.
+El actualizador:
+1. lee OWNER/REPO guardado en %LOCALAPPDATA%\SolidSecViewer\github_repo.txt;
+2. clona ese repo a una carpeta TEMP;
+3. conserva `.git` y reemplaza el resto por esta build;
+4. hace `git add -A`, commit y push;
+5. limpia la copia temporal si todo termina bien.
 
-El historial del mismo repo se conserva.
+CORRECCIONES DE v0.6.0
+----------------------
+- Se usa `%CD%` después de `cd /d "%~dp0"` para evitar el problema de la barra
+  final de `%~dp0` con Robocopy y rutas con espacios.
+- Se comprueba que `SolidSecViewer.xcodeproj` exista antes de tocar GitHub.
+- Se conserva el código de salida real de Robocopy.
+- Se excluye el entorno Python local del PC Companion; antes podía terminar
+  subiendo cientos de MB de `.venv` al repositorio.
 
-SEGURIDAD
----------
-Se excluyen automáticamente:
-*.sec, *.ipa, *.zip, certificados, provisioning profiles, .env,
-secrets.*, build/, DerivedData/ y *.xcresult.
+EXCLUSIONES IMPORTANTES
+-----------------------
+El BAT y `.gitignore` excluyen, entre otros:
+- `.git/`
+- `build/`
+- `DerivedData/`
+- `.swiftpm/`
+- `tools\LANTransfer\.venv/`
+- `__pycache__/`
+- `*.pyc`
+- `*.sec`
+- `*.ipa`
+- `*.zip`
+- `*.xcresult`
+- certificados/provisioning
+- `.env*`
+- `secrets.*`
 
-No metas fotos/videos privados sin cifrar en la carpeta del código.
-
-REQUISITOS
-----------
-Git for Windows
-GitHub CLI (gh)
-
-
-FIX v0.2.1
-------------
-Corregido ACTUALIZAR_GITHUB.bat para rutas de Windows con espacios.
-
-El error anterior ocurría porque %~dp0 termina con "\". Al pasarlo entre comillas
-a Robocopy podía convertirse en un primer argumento mal parseado.
-
-Ahora:
-- el BAT hace cd /d a su propia carpeta;
-- SOURCE_DIR se toma desde %CD%, sin barra final;
-- Robocopy imprime Origen y Destino antes de copiar;
-- el código de salida usa !ERRORLEVEL! con delayed expansion;
-- se verifica que SolidSecViewer.xcodeproj exista antes de tocar GitHub.
+No guardes material privado dentro del árbol del proyecto aunque esté excluido.

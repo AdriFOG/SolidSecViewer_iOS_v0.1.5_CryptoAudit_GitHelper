@@ -5,6 +5,7 @@ enum SolidCryptoError: Error, LocalizedError {
     case badPasswordOrUnsupported
     case badHeader
     case invalidKeyOrIV
+    case nestedFoldersUnsupported
     case unexpectedOutputLength(expected: Int, actual: Int)
     case cryptoFailure(Int)
 
@@ -16,6 +17,8 @@ enum SolidCryptoError: Error, LocalizedError {
             return "Cabecera .sec inválida."
         case .invalidKeyOrIV:
             return "Clave o IV AES inválidos."
+        case .nestedFoldersUnsupported:
+            return "La colección .sec contiene subcarpetas físicas; esta build no las omite silenciosamente."
         case .unexpectedOutputLength(let expected, let actual):
             return "AES-CTR produjo \(actual) bytes; se esperaban \(expected)."
         case .cryptoFailure(let code):

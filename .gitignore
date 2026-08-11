@@ -1,0 +1,28 @@
+# Build products
+build/
+DerivedData/
+*.xcresult
+*.ipa
+
+# Swift/Xcode package caches
+.swiftpm/
+
+# Python PC companion local environment
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Never commit vault/private payloads or signing secrets
+*.sec
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+.env
+.env.*
+secrets.*
+
+# Generated archives
+*.zip
