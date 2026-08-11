@@ -63,6 +63,12 @@ enum PrivateVaultError: Error, LocalizedError {
     }
 }
 
+private enum PrivateVaultLimits {
+    static let maximumConfigBytes: Int64 = 1 * 1024 * 1024
+    static let maximumIndexBytes: Int64 = 128 * 1024 * 1024
+    static let maximumNameUTF8Bytes = 1024
+}
+
 @MainActor
 final class PrivateVaultSession: ObservableObject {
     @Published private(set) var entries: [PrivateVaultEntry] = []
@@ -87,9 +93,6 @@ final class PrivateVaultSession: ObservableObject {
     }
 
     private static let verifierPlaintext = Data("SolidSecPrivateVault-v1".utf8)
-    private static let maximumConfigBytes: Int64 = 1 * 1024 * 1024
-    private static let maximumIndexBytes: Int64 = 128 * 1024 * 1024
-    private static let maximumNameUTF8Bytes = 1024
 
     init() {
         hasVault = Self.hasExistingVaultArtifacts()
@@ -695,13 +698,13 @@ final class PrivateVaultSession: ObservableObject {
         let indexData = try JSONEncoder().encode(candidate)
         let gcmCombinedOverhead: Int64 = 28
         guard
-            Int64(indexData.count) <= Self.maximumIndexBytes - gcmCombinedOverhead
+            Int64(indexData.count) <= PrivateVaultLimits.maximumIndexBytes - gcmCombinedOverhead
         else {
             throw PrivateVaultError.indexTooLarge
         }
 
         let encrypted = try PrivateVaultCrypto.sealSmall(indexData, key: key)
-        guard Int64(encrypted.count) <= Self.maximumIndexBytes else {
+        guard Int64(encrypted.count) <= PrivateVaultLimits.maximumIndexBytes else {
             throw PrivateVaultError.indexTooLarge
         }
 
@@ -711,7 +714,7 @@ final class PrivateVaultSession: ObservableObject {
         if FileManager.default.fileExists(atPath: Self.indexURL.path) {
             let previous = try Self.readBoundedFile(
                 Self.indexURL,
-                maximumBytes: Self.maximumIndexBytes
+                maximumBytes: PrivateVaultLimits.maximumIndexBytes
             )
             try Self.writeProtected(previous, to: Self.indexBackupURL)
         }
@@ -774,7 +777,7 @@ final class PrivateVaultSession: ObservableObject {
             sawCandidate = true
 
             do {
-                let raw = try readBoundedFile(url, maximumBytes: maximumConfigBytes)
+                let raw = try readBoundedFile(url, maximumBytes: PrivateVaultLimits.maximumConfigBytes)
                 let config = try JSONDecoder().decode(
                     PrivateVaultConfig.self,
                     from: raw
@@ -840,7 +843,7 @@ final class PrivateVaultSession: ObservableObject {
             sawCandidate = true
 
             do {
-                let encrypted = try readBoundedFile(url, maximumBytes: maximumIndexBytes)
+                let encrypted = try readBoundedFile(url, maximumBytes: PrivateVaultLimits.maximumIndexBytes)
                 let plaintext = try PrivateVaultCrypto.openSmall(
                     encrypted,
                     key: key
@@ -965,7 +968,7 @@ final class PrivateVaultSession: ObservableObject {
         guard
             let primary = try? readBoundedFile(
                 indexURL,
-                maximumBytes: maximumIndexBytes
+                maximumBytes: PrivateVaultLimits.maximumIndexBytes
             )
         else {
             return
@@ -998,7 +1001,7 @@ final class PrivateVaultSession: ObservableObject {
             !cleaned.contains("\\"),
             !cleaned.contains(":"),
             !cleaned.contains("\0"),
-            cleaned.utf8.count <= maximumNameUTF8Bytes
+            cleaned.utf8.count <= PrivateVaultLimits.maximumNameUTF8Bytes
         else {
             throw PrivateVaultError.invalidName
         }
@@ -1130,19 +1133,30 @@ final class PrivateVaultSession: ObservableObject {
     }
 
     nonisolated static func writeProtected(_ data: Data, to url: URL) throws {
-        // Apply complete file protection as part of the atomic write itself.
-        // A separate chmod/protection step after rename could report failure
-        // after the new index was already committed, breaking transaction logic.
+        // Keep the iPhone metadata transaction atomic AND file-protected.
+        // Native macOS CI helpers use atomic writes without the iOS-only
+        // filesystem protection attribute.
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         try data.write(
             to: url,
             options: [.atomic, .completeFileProtection]
         )
+        #else
+        try data.write(
+            to: url,
+            options: .atomic
+        )
+        #endif
     }
 
     nonisolated static func applyProtection(to url: URL) throws {
+        #if os(iOS) && !targetEnvironment(macCatalyst)
         try FileManager.default.setAttributes(
             [.protectionKey: FileProtectionType.complete],
             ofItemAtPath: url.path
         )
+        #else
+        _ = url
+        #endif
     }
 }

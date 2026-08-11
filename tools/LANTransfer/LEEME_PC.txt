@@ -1,4 +1,4 @@
-SOLIDSEC PC COMPANION v0.6.0
+SOLIDSEC PC COMPANION v0.6.1
 ============================
 
 OBJETIVO

@@ -167,9 +167,9 @@ enum PrivateVaultCrypto {
             }
 
             do {
-                try fm.setAttributes(
-                    [.protectionKey: FileProtectionType.complete],
-                    ofItemAtPath: destination.path
+                try applyCompleteFileProtectionIfSupported(
+                    to: destination,
+                    fileManager: fm
                 )
 
                 let handle = try FileHandle(forWritingTo: destination)
@@ -300,9 +300,9 @@ enum PrivateVaultCrypto {
         }
 
         do {
-            try fm.setAttributes(
-                [.protectionKey: FileProtectionType.complete],
-                ofItemAtPath: destination.path
+            try applyCompleteFileProtectionIfSupported(
+                to: destination,
+                fileManager: fm
             )
 
             let input = try FileHandle(forReadingFrom: source)
@@ -380,9 +380,9 @@ enum PrivateVaultCrypto {
         }
 
         do {
-            try fm.setAttributes(
-                [.protectionKey: FileProtectionType.complete],
-                ofItemAtPath: destination.path
+            try applyCompleteFileProtectionIfSupported(
+                to: destination,
+                fileManager: fm
             )
 
             let input = try FileHandle(forReadingFrom: source)
@@ -551,6 +551,24 @@ enum PrivateVaultCrypto {
         }
 
         return result
+    }
+
+    private static func applyCompleteFileProtectionIfSupported(
+        to url: URL,
+        fileManager: FileManager
+    ) throws {
+        // The app target is iOS, where NSFileProtectionComplete is meaningful.
+        // GitHub crypto self-tests run as native macOS command-line binaries;
+        // macOS can reject the iOS protection attribute with EINVAL.
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        try fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.complete],
+            ofItemAtPath: url.path
+        )
+        #else
+        _ = url
+        _ = fileManager
+        #endif
     }
 
     private static func uint32Data(_ value: UInt32) -> Data {

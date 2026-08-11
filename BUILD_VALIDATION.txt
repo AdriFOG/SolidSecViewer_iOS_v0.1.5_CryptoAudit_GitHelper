@@ -1,4 +1,4 @@
-SOLIDSEC VIEWER v0.6.0 — BUILD VALIDATION
+SOLIDSEC VIEWER v0.6.1 — BUILD VALIDATION
 =========================================
 
 VALIDADO LOCALMENTE
@@ -37,5 +37,5 @@ NO VALIDADO LOCALMENTE
 [ ] Ejecución LiveContainer
 [ ] Transferencia LAN PC <-> iPhone real
 
-Esos puntos los valida GitHub Actions / dispositivo. No considerar la v0.6.0
+Esos puntos los valida GitHub Actions / dispositivo. No considerar la v0.6.1
 “compilada” hasta que el workflow macOS/Xcode termine verde.

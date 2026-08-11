@@ -1,4 +1,4 @@
-SOLIDSEC VIEWER iOS v0.6.0 — AUDITED HARDENING
+SOLIDSEC VIEWER iOS v0.6.1 — AUDITED HARDENING
 ================================================
 
 QUÉ ES
@@ -18,7 +18,7 @@ este entorno. Se corrigieron bugs de transacciones, recuperación de metadata,
 imports, lifecycle, LAN, selección `.sec`, memoria, ZIP legacy y CI.
 
 IMPORTANTE: aquí no hay Xcode/iPhoneOS SDK. GitHub Actions es la prueba autoritativa
-de compilación de la IPA v0.6.0.
+de compilación de la IPA v0.6.1.
 
 SOLID EXPLORER `.sec`
 ---------------------
@@ -127,7 +127,7 @@ Usa el MISMO repo:
   ACTUALIZAR_GITHUB.bat
 
 Artifact esperado:
-  SolidSecViewer-LiveContainer-v0.6.0.ipa
+  SolidSecViewer-LiveContainer-v0.6.1.ipa
 
 PRIMERA PRUEBA
 --------------
@@ -141,3 +141,17 @@ PRIMERA PRUEBA
 
 No necesitas usar material privado para la primera prueba.
 Lee `AUDIT_REPORT.md` y `BUILD_VALIDATION.txt` para detalles.
+
+
+CORRECCIÓN v0.6.1 — DIAGNÓSTICO REAL DE GITHUB ACTIONS
+------------------------------------------------------
+La v0.6.0 sí compiló y validó la app arm64 para iPhone. El gate falló solamente
+porque PrivateVaultSelfTest corre como binario macOS y el test intentaba aplicar
+NSFileProtectionComplete a un archivo temporal del runner. macOS devolvió EINVAL.
+
+v0.6.1 conserva NSFileProtectionComplete en iPhone, pero omite ese atributo
+iOS-específico en el host macOS del self-test. También elimina los warnings de
+actor-isolation y ZIPFoundation que Xcode 16.4 reportó.
+
+El workflow incorpora un warning guard: cualquier warning proveniente de un
+archivo SolidSecViewer/*.swift bloquea el release.

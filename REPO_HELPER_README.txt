@@ -1,4 +1,4 @@
-SOLIDSEC — GITHUB REPO HELPER v0.6.0
+SOLIDSEC — GITHUB REPO HELPER v0.6.1
 ===================================
 
 Usa UN SOLO repositorio permanente.
@@ -18,7 +18,7 @@ El actualizador:
 4. hace `git add -A`, commit y push;
 5. limpia la copia temporal si todo termina bien.
 
-CORRECCIONES DE v0.6.0
+CORRECCIONES DE v0.6.1
 ----------------------
 - Se usa `%CD%` después de `cd /d "%~dp0"` para evitar el problema de la barra
   final de `%~dp0` con Robocopy y rutas con espacios.

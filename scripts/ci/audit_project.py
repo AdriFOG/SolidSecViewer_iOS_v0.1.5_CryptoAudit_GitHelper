@@ -40,7 +40,7 @@ for key, value in required.items():
 
 print(f"PROJECT AUDIT: OK ({len(swift_files)} Swift sources referenced)")
 
-# Regression guards for bugs found during the v0.6.0 audit.
+# Regression guards for bugs found during the v0.6.x audit.
 private_session = (SRC / "PrivateVaultSession.swift").read_text(encoding="utf-8")
 vault_session = (SRC / "VaultSession.swift").read_text(encoding="utf-8")
 content_view = (SRC / "ContentView.swift").read_text(encoding="utf-8")
@@ -180,6 +180,29 @@ if 'MAGIC = b"SSVLAN03"' not in sender or "TransportSealer" not in sender:
 # primary product. Legacy ZIP viewing remains for already stored entries.
 if (SRC / "VaultZipImportSheet.swift").exists():
     print("Regression: dead whole-ZIP vault import source returned")
+    raise SystemExit(1)
+
+# Host-side crypto self-tests run on macOS. iOS file-protection attributes
+# must be platform-gated or the self-test can fail with EINVAL.
+if "applyCompleteFileProtectionIfSupported" not in crypto:
+    print("Regression: platform-safe file-protection helper missing")
+    raise SystemExit(1)
+
+if "#if os(iOS) && !targetEnvironment(macCatalyst)" not in crypto:
+    print("Regression: iOS file protection is not platform-gated")
+    raise SystemExit(1)
+
+sec_zip = (SRC / "SecZipImporter.swift").read_text(encoding="utf-8")
+if "try? Archive(url:" in sec_zip:
+    print("Regression: deprecated ZIPFoundation Archive initializer returned")
+    raise SystemExit(1)
+
+if "_ = try archive.extract(entry, to: destination)" not in sec_zip:
+    print("Regression: ZIPFoundation extract return-value warning guard missing")
+    raise SystemExit(1)
+
+if "PrivateVaultLimits.maximumConfigBytes" not in private_session:
+    print("Regression: vault bounds returned to @MainActor-isolated static storage")
     raise SystemExit(1)
 
 print("SECURITY REGRESSION GUARDS: OK")

@@ -1,4 +1,4 @@
-# SolidSec Viewer v0.6.0 — GitHub Actions
+# SolidSec Viewer v0.6.1 — GitHub Actions
 
 El workflow `.github/workflows/build-ipa.yml` compila y valida la app en un runner
 macOS porque el entorno local de este proyecto no tiene el SDK de iPhone.
@@ -10,8 +10,8 @@ macOS porque el entorno local de este proyecto no tiene el SDK de iPhone.
 3. El BAT reutiliza el mismo repositorio guardado y hace push de esta versión.
 4. Abre **Actions -> Build SolidSec Viewer IPA**.
 5. Espera a que termine el job completo.
-6. Descarga el artifact `SolidSecViewer-LiveContainer-v0.6.0`.
-7. Dentro estará `SolidSecViewer-LiveContainer-v0.6.0.ipa`.
+6. Descarga el artifact `SolidSecViewer-LiveContainer-v0.6.1`.
+7. Dentro estará `SolidSecViewer-LiveContainer-v0.6.1.ipa`.
 
 ## Qué valida el workflow
 
@@ -35,7 +35,7 @@ Si cualquiera de las puertas falla, la publicación de la IPA queda bloqueada.
 
 Cuando falla el job se intenta subir otro artifact:
 
-`SolidSecViewer-build-diagnostics-v0.6.0`
+`SolidSecViewer-build-diagnostics-v0.6.1`
 
 Incluye, cuando existan:
 - logs de self-tests;

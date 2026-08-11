@@ -73,7 +73,10 @@ enum SecZipImporter {
     nonisolated private static func importArchiveSync(
         at zipURL: URL
     ) throws -> SecZipImportResult {
-        guard let archive = try? Archive(url: zipURL, accessMode: .read) else {
+        let archive: Archive
+        do {
+            archive = try Archive(url: zipURL, accessMode: .read)
+        } catch {
             throw SecZipImportError.invalidArchive
         }
 
@@ -302,7 +305,7 @@ enum SecZipImporter {
                         )
                     }
 
-                    try archive.extract(entry, to: destination)
+                    _ = try archive.extract(entry, to: destination)
                     extractedFiles += 1
 
                 case .symlink:

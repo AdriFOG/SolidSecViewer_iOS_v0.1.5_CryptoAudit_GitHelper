@@ -1,4 +1,4 @@
-SOLIDSEC LAN PROTOCOL v3 — v0.6.0 HARDENING
+SOLIDSEC LAN PROTOCOL v3 — v0.6.1 HARDENING
 ===========================================
 
 FLUJO

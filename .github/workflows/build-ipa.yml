@@ -120,6 +120,24 @@ jobs:
         continue-on-error: true
         run: bash scripts/ci/validate_bundle.sh
 
+      - name: Reject project source warnings
+        id: warningguard
+        if: steps.iosbuild.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p build/diagnostics
+          if grep -E -n \
+            'SolidSecViewer/[^:]+\.swift:[0-9]+:[0-9]+: warning:' \
+            build/ios/xcodebuild.log \
+            > build/diagnostics/project-source-warnings.txt; then
+            cat build/diagnostics/project-source-warnings.txt
+            echo "ERROR: el código propio de SolidSec compiló con warnings."
+            exit 1
+          fi
+          : > build/diagnostics/project-source-warnings.txt
+          echo "PROJECT SOURCE WARNINGS: NONE"
+
       - name: Write CI status
         if: always()
         run: |
@@ -130,6 +148,7 @@ jobs:
             echo "pctest=${{ steps.pctest.outcome }}"
             echo "iosbuild=${{ steps.iosbuild.outcome }}"
             echo "validate=${{ steps.validate.outcome }}"
+            echo "warningguard=${{ steps.warningguard.outcome }}"
           } | tee build/diagnostics/status.txt
 
           if [ -f build/ios/xcodebuild.log ]; then
@@ -147,6 +166,7 @@ jobs:
           test "${{ steps.pctest.outcome }}" = "success"
           test "${{ steps.iosbuild.outcome }}" = "success"
           test "${{ steps.validate.outcome }}" = "success"
+          test "${{ steps.warningguard.outcome }}" = "success"
 
       - name: Package and validate IPA
         run: bash scripts/ci/package_ipa.sh
@@ -154,8 +174,8 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-LiveContainer-v0.6.0
-          path: build/package/SolidSecViewer-LiveContainer-v0.6.0.ipa
+          name: SolidSecViewer-LiveContainer-v0.6.1
+          path: build/package/SolidSecViewer-LiveContainer-v0.6.1.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -163,7 +183,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-build-diagnostics-v0.6.0
+          name: SolidSecViewer-build-diagnostics-v0.6.1
           path: |
             build/selftest/selftest.log
             build/selftest/SolidSecSelfTest-compile.log
@@ -183,5 +203,6 @@ jobs:
             build/validation/dependency-paths.txt
             build/diagnostics/status.txt
             build/diagnostics/compiler-summary.txt
+            build/diagnostics/project-source-warnings.txt
           if-no-files-found: ignore
           retention-days: 7
