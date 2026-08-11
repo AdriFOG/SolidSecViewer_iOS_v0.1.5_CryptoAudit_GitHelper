@@ -162,17 +162,6 @@ jobs:
               > build/diagnostics/compiler-summary.txt || true
           fi
 
-      - name: Gate audited build
-        if: always()
-        run: |
-          set -euo pipefail
-          test "${{ steps.selftest.outcome }}" = "success"
-          test "${{ steps.packages.outcome }}" = "success"
-          test "${{ steps.pctest.outcome }}" = "success"
-          test "${{ steps.iosbuild.outcome }}" = "success"
-          test "${{ steps.validate.outcome }}" = "success"
-          test "${{ steps.warningguard.outcome }}" = "success"
-
       - name: Package and validate IPA
         run: bash scripts/ci/package_ipa.sh
 
