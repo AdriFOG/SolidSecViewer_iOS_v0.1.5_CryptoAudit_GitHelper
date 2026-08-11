@@ -2,7 +2,8 @@ import SwiftUI
 import UIKit
 
 private actor DirectSecThumbnailGate {
-    static let shared = DirectSecThumbnailGate(limit: 3)
+    static let images = DirectSecThumbnailGate(limit: 3)
+    static let videos = DirectSecThumbnailGate(limit: 1)
 
     private var permits: Int
     private var waiters: [CheckedContinuation<Void, Never>] = []
@@ -73,31 +74,60 @@ struct VaultThumbnail: View {
                 .foregroundStyle(.white)
         }
         .task(id: item.id) {
-            guard item.isImage else { return }
+            if item.isImage {
+                // A thumbnail is never worth decrypting a gigantic source just
+                // because it scrolled onscreen. The full viewer can still
+                // attempt it.
+                if let values = try? item.encryptedURL.resourceValues(
+                    forKeys: [.fileSizeKey]
+                ), let fileSize = values.fileSize,
+                   fileSize >
+                    64 * 1024 * 1024 + SecCollectionCrypto.headerSize
+                {
+                    image = nil
+                    return
+                }
 
-            // A thumbnail is never worth decrypting a gigantic source just
-            // because it scrolled onscreen. The full viewer can still attempt it.
-            if let values = try? item.encryptedURL.resourceValues(
-                forKeys: [.fileSizeKey]
-            ), let fileSize = values.fileSize,
-               fileSize > 64 * 1024 * 1024 + SecCollectionCrypto.headerSize
-            {
-                image = nil
+                await DirectSecThumbnailGate.images.acquire()
+
+                if Task.isCancelled {
+                    await DirectSecThumbnailGate.images.release()
+                    return
+                }
+
+                do {
+                    let data = try await vault.decryptAsync(item)
+                    if !Task.isCancelled {
+                        image = ImageDownsampler.thumbnail(from: data)
+                    }
+                } catch {
+                    image = nil
+                }
+
+                await DirectSecThumbnailGate.images.release()
                 return
             }
 
-            await DirectSecThumbnailGate.shared.acquire()
+            guard item.isVideo else { return }
+
+            await DirectSecThumbnailGate.videos.acquire()
+
+            if Task.isCancelled {
+                await DirectSecThumbnailGate.videos.release()
+                return
+            }
 
             do {
-                let data = try await vault.decryptAsync(item)
+                let jpeg = try await vault.makeVideoThumbnailData(for: item)
+
                 if !Task.isCancelled {
-                    image = ImageDownsampler.thumbnail(from: data)
+                    image = UIImage(data: jpeg)
                 }
             } catch {
                 image = nil
             }
 
-            await DirectSecThumbnailGate.shared.release()
+            await DirectSecThumbnailGate.videos.release()
         }
     }
 }

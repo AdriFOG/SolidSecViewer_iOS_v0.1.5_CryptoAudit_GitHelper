@@ -100,6 +100,12 @@ private enum PrivateVaultLimits {
     static let maximumConfigBytes: Int64 = 1 * 1024 * 1024
     static let maximumIndexBytes: Int64 = 128 * 1024 * 1024
     static let maximumNameUTF8Bytes = 1024
+
+    // Generated poster frames are intentionally small. The file on disk is an
+    // AES-GCM sealed JPEG, never a plaintext thumbnail.
+    static let maximumThumbnailPlaintextBytes: Int64 = 1 * 1024 * 1024
+    static let maximumThumbnailCiphertextBytes: Int64 =
+        maximumThumbnailPlaintextBytes + 4096
 }
 
 @MainActor
@@ -618,6 +624,115 @@ final class PrivateVaultSession: ObservableObject {
     }
 
 
+
+    /// Read a derived thumbnail from the encrypted cache. The cache is optional:
+    /// corruption or deletion simply causes the thumbnail to be regenerated.
+    func cachedThumbnailData(
+        for entry: PrivateVaultEntry
+    ) async -> Data? {
+        guard isUnlocked else { return nil }
+
+        let operationGeneration = generation
+        let keyCopy = key
+        let url = Self.thumbnailURL(for: entry.id)
+
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+
+        let worker = Task.detached(priority: .utility) {
+            do {
+                let ciphertext = try Self.readBoundedFile(
+                    url,
+                    maximumBytes:
+                        PrivateVaultLimits.maximumThumbnailCiphertextBytes
+                )
+                let plaintext = try PrivateVaultCrypto.openSmall(
+                    ciphertext,
+                    key: keyCopy
+                )
+
+                guard
+                    Int64(plaintext.count) <=
+                        PrivateVaultLimits.maximumThumbnailPlaintextBytes
+                else {
+                    return nil
+                }
+
+                return plaintext
+            } catch {
+                // Thumbnail files are expendable derived data. Never turn a
+                // broken cache item into a vault-unlock failure.
+                try? FileManager.default.removeItem(at: url)
+                return nil
+            }
+        }
+
+        let data = await worker.value
+
+        guard
+            isUnlocked,
+            generation == operationGeneration,
+            !Task.isCancelled
+        else {
+            return nil
+        }
+
+        return data
+    }
+
+    /// Persist a generated thumbnail encrypted under the active vault key.
+    /// This never writes the visual preview as plaintext to disk.
+    func storeCachedThumbnailData(
+        _ data: Data,
+        for entry: PrivateVaultEntry
+    ) async {
+        guard
+            isUnlocked,
+            !data.isEmpty,
+            Int64(data.count) <=
+                PrivateVaultLimits.maximumThumbnailPlaintextBytes
+        else {
+            return
+        }
+
+        let operationGeneration = generation
+        let keyCopy = key
+        let url = Self.thumbnailURL(for: entry.id)
+
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.thumbnailsURL,
+                withIntermediateDirectories: true
+            )
+            try? Self.applyProtection(to: Self.thumbnailsURL)
+
+            let sealed = try await Task.detached(priority: .utility) {
+                try PrivateVaultCrypto.sealSmall(
+                    data,
+                    key: keyCopy
+                )
+            }.value
+
+            guard
+                isUnlocked,
+                generation == operationGeneration,
+                !Task.isCancelled
+            else {
+                return
+            }
+
+            try Self.writeProtected(sealed, to: url)
+
+            var mutable = url
+            var values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? mutable.setResourceValues(values)
+        } catch {
+            // Derived thumbnail failure must not affect the original media.
+        }
+    }
+
     /// Prepare secure random access without rewriting the blob.
     ///
     /// Existing v0.6.x files already carry a whole-file SHA-256 in the encrypted
@@ -1056,6 +1171,10 @@ final class PrivateVaultSession: ObservableObject {
                     let url = Self.blobsURL.appendingPathComponent(blobName)
                     try? FileManager.default.removeItem(at: url)
                 }
+
+                try? FileManager.default.removeItem(
+                    at: Self.thumbnailURL(for: candidate.id)
+                )
             }
 
             // persistIndex intentionally stores the previous generation in the
@@ -1602,6 +1721,19 @@ final class PrivateVaultSession: ObservableObject {
         )
     }
 
+    nonisolated static var thumbnailsURL: URL {
+        vaultRootURL.appendingPathComponent(
+            "thumbnails",
+            isDirectory: true
+        )
+    }
+
+    nonisolated static func thumbnailURL(for entryID: UUID) -> URL {
+        thumbnailsURL.appendingPathComponent(
+            entryID.uuidString + ".nkt"
+        )
+    }
+
     nonisolated static var configURL: URL {
         vaultRootURL.appendingPathComponent("vault.json")
     }
@@ -1727,9 +1859,15 @@ final class PrivateVaultSession: ObservableObject {
             withIntermediateDirectories: true
         )
 
+        try fm.createDirectory(
+            at: thumbnailsURL,
+            withIntermediateDirectories: true
+        )
+
         try applyProtection(to: vaultRootURL)
         try applyProtection(to: blobsURL)
         try applyProtection(to: pendingTransfersURL)
+        try applyProtection(to: thumbnailsURL)
 
         var root = vaultRootURL
         var values = URLResourceValues()

@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import AVKit
+import UIKit
 import UniformTypeIdentifiers
 
 enum StoredSecVideoError: Error, LocalizedError {
@@ -8,6 +9,7 @@ enum StoredSecVideoError: Error, LocalizedError {
     case badSecHeader
     case unsupportedRange
     case invalidRequest
+    case thumbnailGenerationFailed
     case sourceInvalidated
 
     var errorDescription: String? {
@@ -20,6 +22,8 @@ enum StoredSecVideoError: Error, LocalizedError {
             return "El reproductor pidió un rango que Nikaido Explorer no puede representar."
         case .invalidRequest:
             return "AVPlayer solicitó un rango inválido."
+        case .thumbnailGenerationFailed:
+            return "No se pudo generar una miniatura para este video."
         case .sourceInvalidated:
             return "La sesión de video cifrado ya fue cerrada."
         }
@@ -276,6 +280,157 @@ final class StoredSecVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegat
             iv: secIV,
             streamOffset: streamOffset
         )
+    }
+}
+
+
+final class StoredSecVideoThumbnailOperation: @unchecked Sendable {
+    private let loader: StoredSecVideoResourceLoader
+    private let asset: AVURLAsset
+    private let generator: AVAssetImageGenerator
+    private let stateLock = NSLock()
+    private var invalidated = false
+
+    init(
+        descriptor: PrivateVaultRandomAccessDescriptor,
+        secKey: Data,
+        secSalt: Data,
+        secIV: Data,
+        filename: String
+    ) throws {
+        let loader = try StoredSecVideoResourceLoader(
+            descriptor: descriptor,
+            secKey: secKey,
+            secSalt: secSalt,
+            secIV: secIV,
+            filename: filename
+        )
+
+        guard let url = URL(
+            string: "nikaido-thumb://local/\(UUID().uuidString)"
+        ) else {
+            loader.invalidate()
+            throw StoredSecVideoError.invalidRequest
+        }
+
+        let asset = AVURLAsset(url: url)
+        asset.resourceLoader.setDelegate(
+            loader,
+            queue: loader.delegateQueue
+        )
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 512, height: 512)
+
+        // A poster frame does not need frame-accurate seeking. Wide tolerances
+        // let AVFoundation choose a nearby decodable frame and minimize reads.
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+
+        self.loader = loader
+        self.asset = asset
+        self.generator = generator
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func generateJPEG() async throws -> Data {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let requestedTime = CMTime(
+                    seconds: 1.0,
+                    preferredTimescale: 600
+                )
+
+                generator.generateCGImageAsynchronously(
+                    for: requestedTime
+                ) { [weak self] image, _, error in
+                    guard let self else {
+                        continuation.resume(
+                            throwing:
+                                StoredSecVideoError.thumbnailGenerationFailed
+                        )
+                        return
+                    }
+
+                    self.stateLock.lock()
+                    let isInvalidated = self.invalidated
+                    self.stateLock.unlock()
+
+                    if isInvalidated {
+                        continuation.resume(
+                            throwing: StoredSecVideoError.sourceInvalidated
+                        )
+                        return
+                    }
+
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
+                    guard
+                        let image,
+                        let jpeg = UIImage(cgImage: image).jpegData(
+                            compressionQuality: 0.78
+                        ),
+                        !jpeg.isEmpty
+                    else {
+                        continuation.resume(
+                            throwing:
+                                StoredSecVideoError.thumbnailGenerationFailed
+                        )
+                        return
+                    }
+
+                    continuation.resume(returning: jpeg)
+                }
+            }
+        } onCancel: {
+            invalidate()
+        }
+    }
+
+    func invalidate() {
+        stateLock.lock()
+
+        guard !invalidated else {
+            stateLock.unlock()
+            return
+        }
+
+        invalidated = true
+        stateLock.unlock()
+
+        generator.cancelAllCGImageGeneration()
+        loader.invalidate()
+    }
+}
+
+enum StoredSecVideoThumbnailGenerator {
+    static func generateJPEG(
+        descriptor: PrivateVaultRandomAccessDescriptor,
+        secKey: Data,
+        secSalt: Data,
+        secIV: Data,
+        filename: String
+    ) async throws -> Data {
+        let operation = try StoredSecVideoThumbnailOperation(
+            descriptor: descriptor,
+            secKey: secKey,
+            secSalt: secSalt,
+            secIV: secIV,
+            filename: filename
+        )
+
+        defer {
+            operation.invalidate()
+        }
+
+        return try await operation.generateJPEG()
     }
 }
 

@@ -3,6 +3,37 @@ import UIKit
 import UniformTypeIdentifiers
 import AVKit
 
+private actor PrivateVaultEntryThumbnailGate {
+    static let images = PrivateVaultEntryThumbnailGate(limit: 3)
+    static let videos = PrivateVaultEntryThumbnailGate(limit: 1)
+
+    private var permits: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        permits = max(1, limit)
+    }
+
+    func acquire() async {
+        if permits > 0 {
+            permits -= 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            permits += 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 struct PrivateVaultView: View {
     @EnvironmentObject private var vault: PrivateVaultSession
 
@@ -499,17 +530,26 @@ struct PrivateVaultView: View {
             }
         } label: {
             VStack(spacing: 8) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(.quaternary)
+                if entry.isImage || entry.isVideo {
+                    PrivateVaultEntryThumbnail(
+                        vault: vault,
+                        entry: entry
+                    )
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(.quaternary)
 
-                    Image(systemName: icon(for: entry))
-                        .font(.system(size: 38))
-                        .foregroundStyle(
-                            entry.kind == .folder ? .yellow : .secondary
-                        )
+                        Image(systemName: icon(for: entry))
+                            .font(.system(size: 38))
+                            .foregroundStyle(
+                                entry.kind == .folder
+                                ? .yellow
+                                : .secondary
+                            )
+                    }
+                    .aspectRatio(1.25, contentMode: .fit)
                 }
-                .aspectRatio(1.25, contentMode: .fit)
 
                 Text(entry.name)
                     .font(.caption)
@@ -642,6 +682,132 @@ struct PrivateVaultView: View {
     }
 }
 
+
+
+struct PrivateVaultEntryThumbnail: View {
+    @ObservedObject var vault: PrivateVaultSession
+    let entry: PrivateVaultEntry
+
+    @State private var image: UIImage?
+    @State private var isLoading = false
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(.quaternary)
+
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .clipped()
+            } else {
+                Image(systemName: entry.isVideo ? "film.fill" : "photo.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+            }
+
+            if isLoading && image == nil {
+                ProgressView()
+                    .tint(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.40))
+                    .clipShape(Circle())
+            }
+
+            if entry.isVideo {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: image == nil ? 30 : 36))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 3)
+                    .opacity(isLoading && image == nil ? 0.45 : 0.95)
+            }
+        }
+        .aspectRatio(1.25, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .task(id: entry.id) {
+            isLoading = true
+            defer { isLoading = false }
+
+            if
+                let cached = await vault.cachedThumbnailData(for: entry),
+                let decoded = UIImage(data: cached)
+            {
+                image = decoded
+                return
+            }
+
+            if entry.isImage {
+                await PrivateVaultEntryThumbnailGate.images.acquire()
+
+                if Task.isCancelled {
+                    await PrivateVaultEntryThumbnailGate.images.release()
+                    return
+                }
+
+                do {
+                    let data = try await vault.decryptFileDataAsync(
+                        entry,
+                        maxPlaintextBytes: 64 * 1024 * 1024
+                    )
+
+                    if
+                        !Task.isCancelled,
+                        let thumbnail = ImageDownsampler.thumbnail(from: data)
+                    {
+                        image = thumbnail
+
+                        if let jpeg = thumbnail.jpegData(
+                            compressionQuality: 0.82
+                        ) {
+                            await vault.storeCachedThumbnailData(
+                                jpeg,
+                                for: entry
+                            )
+                        }
+                    }
+                } catch {
+                    image = nil
+                }
+
+                await PrivateVaultEntryThumbnailGate.images.release()
+                return
+            }
+
+            guard entry.isVideo else { return }
+
+            await PrivateVaultEntryThumbnailGate.videos.acquire()
+
+            if Task.isCancelled {
+                await PrivateVaultEntryThumbnailGate.videos.release()
+                return
+            }
+
+            do {
+                let descriptor = try await vault.prepareRandomAccess(
+                    for: entry
+                )
+                let jpeg = try await PrivateVaultVideoThumbnailGenerator
+                    .generateJPEG(
+                        descriptor: descriptor,
+                        filename: entry.name
+                    )
+
+                if !Task.isCancelled, let decoded = UIImage(data: jpeg) {
+                    image = decoded
+                    await vault.storeCachedThumbnailData(
+                        jpeg,
+                        for: entry
+                    )
+                }
+            } catch {
+                image = nil
+            }
+
+            await PrivateVaultEntryThumbnailGate.videos.release()
+        }
+    }
+}
 
 struct NikaidoMoveDestinationView: View {
     @EnvironmentObject private var vault: PrivateVaultSession

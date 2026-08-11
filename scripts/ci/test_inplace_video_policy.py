@@ -55,8 +55,11 @@ for required in (
 if "VideoPlayer(player:" not in viewer:
     fail("la colección .sec no usa VideoPlayer")
 
-if viewer.count("secKey: key") != 1:
+if viewer.count("secKey: key,") != 1:
     fail("la creación del reproductor debe pasar secKey exactamente una vez")
+
+if viewer.count("secKey: keyCopy,") != 1:
+    fail("la miniatura cifrada debe usar una copia acotada de secKey")
 
 for forbidden in (
     "makeTemporaryDecryptedCopy",

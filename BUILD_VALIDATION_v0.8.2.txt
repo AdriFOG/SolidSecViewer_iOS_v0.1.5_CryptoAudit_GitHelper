@@ -1,0 +1,28 @@
+Nikaido Explorer v0.8.2 local validation
+========================================
+Info.plist: OK
+project.pbxproj: OK
+Swift syntax parse: 30/30
+Shell scripts: OK
+Python py_compile: OK
+Project audit: OK (27 Swift sources referenced)
+Security regression guards: OK
+Lifecycle guard: OK
+In-place video guard: OK
+Nikaido reliability guard: OK
+v0.8.2 diagnostics guard: OK
+Video thumbnail guard: OK
+Nikaido Bridge E2E resume/ACK: OK
+Nikaido Bridge idempotent retry: OK
+Nikaido Bridge resume consistency: OK
+GitHub Actions YAML: OK
+
+Compatibility invariants:
+- Bundle ID com.teamnikaido.solidsecviewer: preserved
+- Vault verifier SolidSecPrivateVault-v1: preserved
+- Vault config version: unchanged
+- Existing .ssvb blobs: no migration/rewrite required
+
+Important:
+This environment cannot perform the final iPhoneOS Xcode typecheck/link.
+GitHub Actions/Xcode 16.4 remains authoritative.

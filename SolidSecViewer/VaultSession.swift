@@ -122,6 +122,37 @@ final class VaultSession: ObservableObject {
         activeVideoPlaybacks.removeValue(forKey: playback.id)
     }
 
+    func makeVideoThumbnailData(
+        for item: VaultItem
+    ) async throws -> Data {
+        guard isUnlocked, item.isVideo else {
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
+        }
+
+        let operationGeneration = generation
+        let keyCopy = key
+        let saltCopy = salt
+        let ivCopy = iv
+
+        let jpeg = try await SecDirectVideoThumbnailGenerator.generateJPEG(
+            source: item.encryptedURL,
+            key: keyCopy,
+            salt: saltCopy,
+            iv: ivCopy,
+            filename: item.name
+        )
+
+        guard
+            isUnlocked,
+            generation == operationGeneration,
+            !Task.isCancelled
+        else {
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
+        }
+
+        return jpeg
+    }
+
     func decrypt(_ item: VaultItem) throws -> Data {
         guard isUnlocked else {
             throw SecCollectionCryptoError.badPasswordOrUnsupported

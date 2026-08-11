@@ -70,6 +70,7 @@ final class StoredSecCollectionSession: ObservableObject {
     private var operationGeneration: UInt64 = 0
     private let thumbnailCache = NSCache<NSUUID, UIImage>()
     private let thumbnailGate = ThumbnailDecryptGate(limit: 3)
+    private let videoThumbnailGate = ThumbnailDecryptGate(limit: 1)
     private var activeVideoPlaybacks: [UUID: StoredSecVideoPlayback] = [:]
 
     init() {
@@ -244,34 +245,115 @@ final class StoredSecCollectionSession: ObservableObject {
             return cached
         }
 
-        guard item.isImage else { return nil }
-
-        await thumbnailGate.acquire()
-
-        let result: UIImage?
-        do {
-            // Keep scroll bursts bounded: a thumbnail should not decrypt a
-            // hundreds-of-megabytes source merely because it became visible.
-            let data = try await decrypt(
-                item,
-                maxPlaintextBytes: 64 * 1024 * 1024
-            )
+        if item.isImage {
+            await thumbnailGate.acquire()
 
             if Task.isCancelled {
+                await thumbnailGate.release()
+                return nil
+            }
+
+            let result: UIImage?
+            do {
+                // Keep scroll bursts bounded: a thumbnail should not decrypt a
+                // hundreds-of-megabytes source merely because it became visible.
+                let data = try await decrypt(
+                    item,
+                    maxPlaintextBytes: 64 * 1024 * 1024
+                )
+
+                if Task.isCancelled {
+                    result = nil
+                } else if let image = ImageDownsampler.thumbnail(from: data) {
+                    cacheThumbnail(image, forKey: cacheKey)
+                    result = image
+                } else {
+                    result = nil
+                }
+            } catch {
                 result = nil
-            } else if let image = ImageDownsampler.thumbnail(from: data) {
-                let cost = Int(
-                    image.size.width
-                    * image.size.height
-                    * image.scale
-                    * image.scale
-                    * 4
+            }
+
+            await thumbnailGate.release()
+            return result
+        }
+
+        guard item.isVideo, let privateVault else {
+            return nil
+        }
+
+        // Video poster frames are derived sensitive data. If one already exists,
+        // it is loaded from Nikaido Vault's AES-GCM encrypted thumbnail cache.
+        if
+            let cachedData = await privateVault.cachedThumbnailData(
+                for: item.sourceEntry
+            ),
+            let cachedImage = UIImage(data: cachedData)
+        {
+            cacheThumbnail(cachedImage, forKey: cacheKey)
+            return cachedImage
+        }
+
+        // Only one legacy video is prepared at a time. Old v0.6-v0.8.1 blobs
+        // may require one full authenticated pass to establish safe random
+        // access. Scrolling away cancels that pass instead of indexing blindly.
+        await videoThumbnailGate.acquire()
+
+        if Task.isCancelled {
+            await videoThumbnailGate.release()
+            return nil
+        }
+
+        // A previous waiter may have generated the thumbnail while this task
+        // was queued.
+        if let cached = thumbnailCache.object(forKey: cacheKey) {
+            await videoThumbnailGate.release()
+            return cached
+        }
+
+        let operation = operationGeneration
+        let keyCopy = key
+        let saltCopy = salt
+        let ivCopy = iv
+        let result: UIImage?
+
+        do {
+            let descriptor = try await privateVault.prepareRandomAccess(
+                for: item.sourceEntry
+            )
+
+            guard
+                isUnlocked,
+                operation == operationGeneration,
+                !Task.isCancelled
+            else {
+                throw PrivateVaultError.locked
+            }
+
+            let jpeg = try await StoredSecVideoThumbnailGenerator.generateJPEG(
+                descriptor: descriptor,
+                secKey: keyCopy,
+                secSalt: saltCopy,
+                secIV: ivCopy,
+                filename: item.name
+            )
+
+            guard
+                isUnlocked,
+                operation == operationGeneration,
+                !Task.isCancelled
+            else {
+                throw PrivateVaultError.locked
+            }
+
+            if let image = UIImage(data: jpeg) {
+                cacheThumbnail(image, forKey: cacheKey)
+
+                await privateVault.storeCachedThumbnailData(
+                    jpeg,
+                    for: item.sourceEntry
                 )
-                thumbnailCache.setObject(
-                    image,
-                    forKey: cacheKey,
-                    cost: max(cost, 1)
-                )
+
                 result = image
             } else {
                 result = nil
@@ -280,8 +362,27 @@ final class StoredSecCollectionSession: ObservableObject {
             result = nil
         }
 
-        await thumbnailGate.release()
+        await videoThumbnailGate.release()
         return result
+    }
+
+    private func cacheThumbnail(
+        _ image: UIImage,
+        forKey cacheKey: NSUUID
+    ) {
+        let cost = Int(
+            image.size.width
+            * image.size.height
+            * image.scale
+            * image.scale
+            * 4
+        )
+
+        thumbnailCache.setObject(
+            image,
+            forKey: cacheKey,
+            cost: max(cost, 1)
+        )
     }
 
 
@@ -589,7 +690,21 @@ struct StoredSecFolderViewer: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
+
+            if visibleItems.contains(where: { $0.isVideo }) {
+                Text(
+                    "Las miniaturas de video se guardan cifradas. "
+                    + "Un video antiguo puede tardar una sola vez en preparar su poster."
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
                 .padding(.bottom, 4)
+            } else {
+                Spacer()
+                    .frame(height: 4)
+            }
 
             ScrollView {
                 LazyVGrid(
@@ -628,6 +743,7 @@ struct StoredSecCollectionThumbnail: View {
     let item: StoredSecCollectionItem
 
     @State private var image: UIImage?
+    @State private var isLoading = false
 
     var body: some View {
         ZStack {
@@ -650,13 +766,31 @@ struct StoredSecCollectionThumbnail: View {
                 .font(.system(size: 34))
                 .foregroundStyle(.secondary)
             }
+
+            if isLoading && image == nil {
+                ProgressView()
+                    .tint(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.40))
+                    .clipShape(Circle())
+            }
+
+            if item.isVideo {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: image == nil ? 30 : 36))
+                    .foregroundStyle(.white)
+                    .shadow(radius: 3)
+                    .opacity(isLoading && image == nil ? 0.45 : 0.95)
+            }
         }
         .aspectRatio(1.15, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .task(id: item.id) {
-            guard item.isImage else { return }
+            guard item.isImage || item.isVideo else { return }
 
+            isLoading = true
             image = await session.thumbnail(for: item)
+            isLoading = false
         }
     }
 }

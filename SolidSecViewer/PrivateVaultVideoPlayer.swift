@@ -1,15 +1,19 @@
 import Foundation
 import AVFoundation
+import UIKit
 import UniformTypeIdentifiers
 
 enum PrivateVaultVideoError: Error, LocalizedError {
     case invalidRange
+    case thumbnailGenerationFailed
     case sourceInvalidated
 
     var errorDescription: String? {
         switch self {
         case .invalidRange:
             return "El reproductor solicitó un rango de video inválido."
+        case .thumbnailGenerationFailed:
+            return "No se pudo generar una miniatura para este video."
         case .sourceInvalidated:
             return "La sesión de video de Nikaido Vault ya fue cerrada."
         }
@@ -187,6 +191,137 @@ final class PrivateVaultVideoResourceLoader: NSObject, AVAssetResourceLoaderDele
         if !loadingRequest.isCancelled {
             loadingRequest.finishLoading()
         }
+    }
+}
+
+
+final class PrivateVaultVideoThumbnailOperation: @unchecked Sendable {
+    private let loader: PrivateVaultVideoResourceLoader
+    private let asset: AVURLAsset
+    private let generator: AVAssetImageGenerator
+    private let lock = NSLock()
+    private var invalidated = false
+
+    init(
+        descriptor: PrivateVaultRandomAccessDescriptor,
+        filename: String
+    ) throws {
+        let loader = try PrivateVaultVideoResourceLoader(
+            descriptor: descriptor,
+            filename: filename
+        )
+
+        guard let url = URL(
+            string: "nikaido-vault-thumb://local/\(UUID().uuidString)"
+        ) else {
+            loader.invalidate()
+            throw PrivateVaultVideoError.invalidRange
+        }
+
+        let asset = AVURLAsset(url: url)
+        asset.resourceLoader.setDelegate(
+            loader,
+            queue: loader.delegateQueue
+        )
+
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 512, height: 512)
+        generator.requestedTimeToleranceBefore = .positiveInfinity
+        generator.requestedTimeToleranceAfter = .positiveInfinity
+
+        self.loader = loader
+        self.asset = asset
+        self.generator = generator
+    }
+
+    deinit {
+        invalidate()
+    }
+
+    func generateJPEG() async throws -> Data {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                generator.generateCGImageAsynchronously(
+                    for: CMTime(seconds: 1.0, preferredTimescale: 600)
+                ) { [weak self] image, _, error in
+                    guard let self else {
+                        continuation.resume(
+                            throwing:
+                                PrivateVaultVideoError.thumbnailGenerationFailed
+                        )
+                        return
+                    }
+
+                    self.lock.lock()
+                    let isInvalidated = self.invalidated
+                    self.lock.unlock()
+
+                    if isInvalidated {
+                        continuation.resume(
+                            throwing: PrivateVaultVideoError.sourceInvalidated
+                        )
+                        return
+                    }
+
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+
+                    guard
+                        let image,
+                        let jpeg = UIImage(cgImage: image).jpegData(
+                            compressionQuality: 0.78
+                        ),
+                        !jpeg.isEmpty
+                    else {
+                        continuation.resume(
+                            throwing:
+                                PrivateVaultVideoError.thumbnailGenerationFailed
+                        )
+                        return
+                    }
+
+                    continuation.resume(returning: jpeg)
+                }
+            }
+        } onCancel: {
+            invalidate()
+        }
+    }
+
+    func invalidate() {
+        lock.lock()
+
+        guard !invalidated else {
+            lock.unlock()
+            return
+        }
+
+        invalidated = true
+        lock.unlock()
+
+        generator.cancelAllCGImageGeneration()
+        loader.invalidate()
+    }
+}
+
+enum PrivateVaultVideoThumbnailGenerator {
+    static func generateJPEG(
+        descriptor: PrivateVaultRandomAccessDescriptor,
+        filename: String
+    ) async throws -> Data {
+        let operation = try PrivateVaultVideoThumbnailOperation(
+            descriptor: descriptor,
+            filename: filename
+        )
+
+        defer {
+            operation.invalidate()
+        }
+
+        return try await operation.generateJPEG()
     }
 }
 
