@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title SolidSec Viewer - Crear repo GitHub
+title Nikaido Explorer - Crear repo GitHub
 cd /d "%~dp0"
 
 echo ============================================================
-echo   SOLIDSEC VIEWER - CREAR / CONFIGURAR REPO DE GITHUB
+echo   NIKAIDO EXPLORER - CREAR / CONFIGURAR REPO DE GITHUB
 echo ============================================================
 echo.
 echo Este script se usa SOLO la primera vez.
@@ -58,7 +58,7 @@ if "%VIS_CHOICE%"=="2" (
 
 if not exist ".gitignore" (
     >".gitignore" (
-        echo # SolidSec Viewer - archivos locales / sensibles
+        echo # Nikaido Explorer - archivos locales / sensibles
         echo build/
         echo DerivedData/
         echo *.xcresult
@@ -102,7 +102,7 @@ if errorlevel 1 goto :fail
 
 git diff --cached --quiet
 if errorlevel 1 (
-    git commit -m "Initial SolidSec Viewer repository"
+    git commit -m "Initial Nikaido Explorer repository"
     if errorlevel 1 goto :fail
 )
 

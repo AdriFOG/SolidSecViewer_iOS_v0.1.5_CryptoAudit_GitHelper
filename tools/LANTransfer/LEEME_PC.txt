@@ -1,76 +1,85 @@
-SOLIDSEC PC COMPANION v0.6.1
-============================
+NIKAIDO BRIDGE / NIKAIDO LINK v4 — PC COMPANION
+================================================
 
 OBJETIVO
 --------
-Enviar una colección Solid Explorer `.sec` grande desde Windows al iPhone sin
-subirla a iCloud y sin almacenar el ZIP completo en el teléfono.
+Transferir desde Windows una colección cifrada `.sec` grande hacia Nikaido Vault sin
+subirla a iCloud y sin guardar el ZIP completo en el iPhone.
 
 PRIMERA VEZ
 -----------
 Ejecuta:
+
   PREPARAR_PC.bat
 
-El preparador:
-- busca Python 3 usable de 64 bits;
-- si no existe intenta instalar Python 3.12 con winget;
-- crea `tools\LANTransfer\.venv`;
-- instala `requirements.txt`;
-- verifica sender + AES-GCM.
-
-El venv es exclusivo de SolidSec.
+El preparador crea `tools\LANTransfer\.venv`, instala las dependencias del sender y
+verifica AES-GCM. El entorno Python es privado de este companion y no modifica tus
+otros proyectos.
 
 TRANSFERIR
 ----------
 iPhone:
-  SolidSec -> Mi bóveda -> desbloquear -> botón Wi-Fi
+
+  Nikaido Explorer -> Nikaido Vault -> Nikaido Link
 
 Windows:
-  ENVIAR_SEC_A_IPHONE.bat
+
+  NIKAIDO_BRIDGE.bat
 
 Puedes arrastrar:
-- un ZIP que contenga la `.sec`; o
+- un ZIP que contenga una colección `.sec`; o
 - una carpeta `.sec` plana.
 
-Introduce IP, puerto y código mostrados por el iPhone.
-
-IMPORTANTE
-----------
-El BAT NO abre una conexión TCP de prueba. El sender real crea la única conexión.
-La PC inicia una conexión SALIENTE; no se crea una regla de Firewall entrante.
+Introduce IP, puerto y código mostrados por Nikaido Link.
 
 QUÉ VIAJA
 ---------
-El ZIP no viaja. El sender abre el ZIP en streaming y manda solo los archivos
-cifrados de la colección seleccionada.
+El ZIP NO viaja. Nikaido Bridge lo lee localmente por streaming y manda únicamente
+los archivos ya cifrados de la colección seleccionada. El iPhone vuelve a envolver
+cada archivo dentro de Nikaido Vault con AES-256-GCM.
 
-El transporte usa SolidSec LAN v3 (`SSVLAN03`): AES-GCM + contador de secuencia
-autenticado. El iPhone vuelve a envolver cada archivo con AES-256-GCM de Mi bóveda.
+RESUME v4
+---------
+Si la conexión se corta:
+- el archivo parcial actual se descarta;
+- cada archivo que ya terminó permanece cifrado en `pending`;
+- al volver a usar la misma fuente, Nikaido Link devuelve los índices terminados;
+- Nikaido Bridge los salta y continúa con los restantes.
 
-VALIDACIONES PC
----------------
-- máximo 500000 entradas del ZIP durante discovery;
-- máximo 200000 archivos en la colección;
-- máximo 100 GB;
-- nombres <=1024 bytes UTF-8;
-- duplicados rechazados;
-- symlinks rechazados;
-- rutas absolutas/traversal rechazadas;
-- ZIP protegido con contraseña rechazado (la `.sec` ya está cifrada);
-- subcarpetas `.sec` rechazadas hasta validar su semántica.
+El resume es por archivo completo. Un archivo individual cortado a mitad se repite.
 
-PARA UNA COLECCIÓN GRANDE
--------------------------
-- PC por Ethernet si puedes;
-- iPhone con Wi-Fi estable;
-- iPhone cargando;
-- SolidSec en primer plano;
-- no cambies de red durante el envío.
+CONFIRMACIÓN FINAL
+------------------
+Nikaido Bridge ya NO considera éxito simplemente haber enviado el último byte.
+Espera un ACK cifrado del iPhone después de que Nikaido Vault haya hecho commit del
+índice.
 
-NO BORRES EL ORIGINAL cuando Windows termine. Espera la confirmación del iPhone:
-  “Colección .sec guardada”
+Éxito esperado:
 
-LIMITACIONES
+  [OK] TRANSFERENCIA CONFIRMADA POR NIKAIDO VAULT.
+
+Si el ACK se pierde después del commit, vuelve a ejecutar la misma fuente: Nikaido
+Vault reconoce el transferID ya guardado y responde `alreadyCommitted`, sin duplicar
+la colección.
+
+VALIDACIONES
 ------------
-- todavía no hay resume;
-- todavía no hay ACK final del commit hacia Windows.
+- máximo 500000 entradas durante discovery de ZIP;
+- máximo 200000 archivos de colección;
+- máximo 100 GB anunciado;
+- nombres limitados y rutas traversal/absolutas/symlinks rechazadas;
+- ZIP con contraseña rechazado (la `.sec` ya está cifrada);
+- subcarpetas físicas `.sec` rechazadas por ahora;
+- frame AES-GCM + secuencia autenticada;
+- tamaños por archivo y total comprobados;
+- espacio libre + margen calculado sobre bytes que faltan por recibir.
+
+CONSEJO PARA TRANSFERENCIAS GRANDES
+-----------------------------------
+- PC por Ethernet si puedes;
+- iPhone en Wi-Fi estable y cargando;
+- Nikaido Explorer en primer plano;
+- evita cambiar de red.
+
+La gracia de lifecycle tolera overlays/transiciones cortas, pero iOS sigue controlando
+el tiempo real de background.

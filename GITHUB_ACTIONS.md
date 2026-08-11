@@ -1,68 +1,54 @@
-# SolidSec Viewer v0.6.2 — GitHub Actions
+# Nikaido Explorer v0.8.0 — GitHub Actions
 
-El workflow `.github/workflows/build-ipa.yml` compila y valida la app en un runner
-macOS porque el entorno local de este proyecto no tiene el SDK de iPhone.
+El workflow `.github/workflows/build-ipa.yml` usa macOS + Xcode 16.4 porque la
+compilación real de UIKit/AVFoundation/Network.framework requiere el SDK de iPhone.
 
 ## Uso
 
 1. Descomprime esta build.
 2. Ejecuta `ACTUALIZAR_GITHUB.bat` desde la raíz.
-3. El BAT reutiliza el mismo repositorio guardado y hace push de esta versión.
-4. Abre **Actions -> Build SolidSec Viewer IPA**.
-5. Espera a que termine el job completo.
-6. Descarga el artifact `SolidSecViewer-LiveContainer-v0.6.2`.
-7. Dentro estará `SolidSecViewer-LiveContainer-v0.6.2.ipa`.
+3. El BAT reutiliza el mismo repo permanente y hace push.
+4. Abre **Actions -> Build Nikaido Explorer IPA**.
+5. Espera que termine el job completo.
+6. Descarga `NikaidoExplorer-LiveContainer-v0.8.0`.
+7. Dentro estará `NikaidoExplorer-LiveContainer-v0.8.0.ipa`.
 
-## Qué valida el workflow
+## Puertas del workflow
 
-Antes de empaquetar la IPA se ejecutan varias puertas independientes:
+- `plutil` de Info.plist y project.pbxproj.
+- parse Swift 5 de las fuentes de la app.
+- auditoría de refs Swift del PBX y regresiones de seguridad.
+- guard de lifecycle de privacidad/Nikaido Link.
+- guard de video cifrado in-place.
+- guard de branding/compatibilidad/resume v0.8.
+- self-test de formato `.sec` PBKDF2/AES-CTR + random offsets.
+- self-test de Nikaido Vault AES-GCM/chunks/hash/random access/journal.
+- self-test de compatibilidad de índice viejo + política de versión futura.
+- resolución explícita de ZIPFoundation.
+- self-test de Nikaido Bridge en venv limpio, incluido resume + ACK loopback.
+- build arm64 iphoneos sin firma.
+- guard que rechaza warnings provenientes de nuestros `.swift`.
+- validación bundle/Mach-O/arm64/dependencias.
+- empaquetado y test de la estructura IPA.
 
-- `plutil` sobre `Info.plist` y `project.pbxproj`.
-- Parse de todos los `.swift` del target.
-- Auditoría automática de que cada fuente Swift esté referenciada por el proyecto.
-- Self-test PBKDF2/AES-CTR/parser `.sec`.
-- Self-test de la bóveda AES-GCM/chunked encryption.
-- Resolución explícita de ZIPFoundation.
-- Self-test del sender de Windows en un venv limpio.
-- Build arm64 para `iphoneos` sin firma.
-- Validación de `CFBundleExecutable`, bundle type, Mach-O, arm64, `__PAGEZERO` y
-  dependencias del binario.
-- Construcción y prueba de la estructura final de la IPA.
-
-Si cualquiera de las puertas falla, la publicación de la IPA queda bloqueada.
+La IPA no se publica si falla cualquiera de estas puertas.
 
 ## Diagnósticos
 
-Cuando falla el job se intenta subir otro artifact:
+En fallo se intenta publicar:
 
-`SolidSecViewer-build-diagnostics-v0.6.2`
+`NikaidoExplorer-build-diagnostics-v0.8.0`
 
-Incluye, cuando existan:
-- logs de self-tests;
-- log de resolución SPM;
-- log del PC Companion;
-- `xcodebuild.log`;
-- `.xcresult`;
-- logs Mach-O/bundle;
-- `status.txt` con el resultado de cada etapa;
-- resumen de errores/warnings del compilador.
+Incluye logs de self-tests, resolución SPM, PC test, xcodebuild, xcresult,
+validación de bundle/Mach-O y resumen de status/warnings.
 
-Si la build falla, descarga ese ZIP y pásalo para revisar el error exacto.
+## Compatibilidad de datos
 
-## Dependencia Swift
+El branding visible cambió, pero el target técnico y Bundle ID heredados se mantienen
+para proteger la continuidad del data container existente. No cambies manualmente el
+Bundle ID antes de probar la bóveda ya almacenada.
 
-ZIPFoundation está fijado en el proyecto para leer ZIPs en el modo de compatibilidad.
-La ruta LAN recomendada para colecciones grandes NO manda el ZIP al iPhone: el
-sender de Windows abre el ZIP localmente y manda solo los archivos `.sec` cifrados.
+## Privacidad del repo
 
-## Firma y LiveContainer
-
-La IPA se construye sin firma Apple deliberadamente. No metas `.p12`, `.p8`,
-`.mobileprovision` ni certificados al repo. LiveContainer se encarga de su propio
-flujo de preparación/firma de la app invitada.
-
-## Privacidad del repositorio
-
-Usa preferiblemente un repo privado. El repositorio debe contener solo código y
-fixtures sintéticos. Nunca subas material real de la bóveda, carpetas `.sec`, ZIPs
-privados, claves o contraseñas.
+Usa preferiblemente un repo privado. Sube código/fixtures sintéticos, nunca la bóveda
+real, `.sec` privados, ZIPs, IPA, certificados, contraseñas o material personal.

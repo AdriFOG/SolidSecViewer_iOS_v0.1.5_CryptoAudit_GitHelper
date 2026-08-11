@@ -1,4 +1,4 @@
-name: Build SolidSec Viewer IPA
+name: Build Nikaido Explorer IPA
 
 on:
   workflow_dispatch:
@@ -44,8 +44,11 @@ jobs:
             xcrun swiftc -frontend -swift-version 5 -parse "$source"
           done < <(find SolidSecViewer -maxdepth 1 -name '*.swift' -print | sort)
 
-          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py
+          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py scripts/ci/test_lifecycle_policy.py scripts/ci/test_inplace_video_policy.py scripts/ci/test_nikaido_reliability.py
           python3 scripts/ci/audit_project.py
+          python3 scripts/ci/test_lifecycle_policy.py
+          python3 scripts/ci/test_inplace_video_policy.py
+          python3 scripts/ci/test_nikaido_reliability.py
 
           if grep -R --line-number --fixed-strings "ContentUnavailableView" SolidSecViewer; then
             echo "ERROR: ContentUnavailableView requiere iOS 17+."
@@ -132,7 +135,7 @@ jobs:
             build/ios/xcodebuild.log \
             > build/diagnostics/project-source-warnings.txt; then
             cat build/diagnostics/project-source-warnings.txt
-            echo "ERROR: el código propio de SolidSec compiló con warnings."
+            echo "ERROR: Nikaido Explorer compiló con warnings."
             exit 1
           fi
           : > build/diagnostics/project-source-warnings.txt
@@ -174,8 +177,8 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-LiveContainer-v0.6.2
-          path: build/package/SolidSecViewer-LiveContainer-v0.6.2.ipa
+          name: NikaidoExplorer-LiveContainer-v0.8.0
+          path: build/package/NikaidoExplorer-LiveContainer-v0.8.0.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -183,13 +186,15 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: SolidSecViewer-build-diagnostics-v0.6.2
+          name: NikaidoExplorer-build-diagnostics-v0.8.0
           path: |
             build/selftest/selftest.log
-            build/selftest/SolidSecSelfTest-compile.log
-            build/selftest/SolidSecSelfTest-runtime.log
+            build/selftest/SecCollectionSelfTest-compile.log
+            build/selftest/SecCollectionSelfTest-runtime.log
             build/selftest/PrivateVaultSelfTest-compile.log
             build/selftest/PrivateVaultSelfTest-runtime.log
+            build/selftest/IndexCompatibilitySelfTest-compile.log
+            build/selftest/IndexCompatibilitySelfTest-runtime.log
             build/packages/resolve.log
             build/pc-selftest.log
             build/ios/xcodebuild.log

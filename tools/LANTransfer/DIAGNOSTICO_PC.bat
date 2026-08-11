@@ -2,11 +2,11 @@
 setlocal EnableExtensions
 cd /d "%~dp0"
 
-title SolidSec PC Bridge - Diagnostico
+title Nikaido Bridge - Diagnostico
 
 echo.
 echo ============================================================
-echo   SolidSec PC Bridge - Diagnostico de esta PC
+echo   Nikaido Bridge - Diagnostico de esta PC
 echo ============================================================
 echo.
 

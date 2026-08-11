@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import AVKit
 
 struct MediaViewer: View {
     @EnvironmentObject private var vault: VaultSession
@@ -8,6 +9,7 @@ struct MediaViewer: View {
     let item: VaultItem
 
     @State private var image: UIImage?
+    @State private var playback: SecDirectVideoPlayback?
     @State private var errorText: String?
 
     var body: some View {
@@ -17,25 +19,18 @@ struct MediaViewer: View {
             Group {
                 if let image {
                     ZoomableImage(image: image)
-                } else if item.isVideo {
-                    VStack(spacing: 14) {
-                        Image(systemName: "film.stack.fill")
-                            .font(.system(size: 52))
-                            .foregroundStyle(.white)
-
-                        Text("Video")
-                            .foregroundStyle(.white)
-                            .font(.title2.bold())
-
-                        Text("Video por rangos cifrados aún pendiente; SolidSec no crea una copia plaintext completa.")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding()
+                } else if let playback {
+                    VideoPlayer(player: playback.player)
+                        .ignoresSafeArea()
                 } else if let errorText {
                     Text(errorText)
                         .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
                         .padding()
+                } else if item.isVideo {
+                    ProgressView("Preparando video cifrado…")
+                        .tint(.white)
+                        .foregroundStyle(.white)
                 } else {
                     ProgressView()
                         .tint(.white)
@@ -43,6 +38,8 @@ struct MediaViewer: View {
             }
 
             Button {
+                vault.stopVideoPlayback(playback)
+                playback = nil
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -54,18 +51,29 @@ struct MediaViewer: View {
             .accessibilityLabel("Cerrar")
         }
         .task {
-            guard item.isImage else { return }
-
             do {
-                let data = try await vault.decryptAsync(item)
-                image = UIImage(data: data)
+                if item.isImage {
+                    let data = try await vault.decryptAsync(item)
+                    image = UIImage(data: data)
 
-                if image == nil {
-                    errorText = "iOS no pudo decodificar esta imagen."
+                    if image == nil {
+                        errorText = "iOS no pudo decodificar esta imagen."
+                    }
+                    return
+                }
+
+                if item.isVideo {
+                    let prepared = try vault.makeVideoPlayback(for: item)
+                    playback = prepared
+                    prepared.play()
                 }
             } catch {
                 errorText = error.localizedDescription
             }
+        }
+        .onDisappear {
+            vault.stopVideoPlayback(playback)
+            playback = nil
         }
     }
 }

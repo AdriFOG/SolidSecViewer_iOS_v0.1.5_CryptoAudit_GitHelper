@@ -3,6 +3,7 @@ import Network
 import CryptoKit
 import Darwin
 import Combine
+import UIKit
 
 enum LANTransferError: Error, LocalizedError {
     case vaultLocked
@@ -18,15 +19,19 @@ enum LANTransferError: Error, LocalizedError {
     case invalidFilename
     case insufficientStorage(required: Int64, available: Int64)
     case duplicateFilename(String)
+    case invalidTransferID
+    case invalidManifest
+    case ackFailed
+    case backgroundGraceExpired
 
     var errorDescription: String? {
         switch self {
         case .vaultLocked:
-            return "Mi bóveda debe permanecer desbloqueada durante la transferencia."
+            return "Nikaido Vault debe permanecer desbloqueada durante la transferencia."
         case .listenerFailed(let text):
             return "No se pudo iniciar el receptor local: \(text)"
         case .invalidMagic:
-            return "El cliente no usa el protocolo SolidSec LAN v3."
+            return "El cliente no usa el protocolo Nikaido Link v4."
         case .invalidFrame:
             return "Se recibió un bloque de red inválido."
         case .invalidMetadata:
@@ -49,20 +54,51 @@ enum LANTransferError: Error, LocalizedError {
             return "No hay espacio suficiente. La colección necesita cerca de \(formatter.string(fromByteCount: required)) y quedan \(formatter.string(fromByteCount: available))."
         case .duplicateFilename(let name):
             return "La colección contiene un archivo duplicado: \(name)"
+        case .invalidTransferID:
+            return "El identificador de Nikaido Link es inválido."
+        case .invalidManifest:
+            return "El manifiesto de reanudación es inválido."
+        case .ackFailed:
+            return "La PC no recibió la confirmación final de Nikaido Vault."
+        case .backgroundGraceExpired:
+            return "Nikaido Explorer permaneció demasiado tiempo en segundo plano. "
+                + "La transferencia se canceló y la bóveda volvió a bloquearse."
         }
     }
 }
 
 struct LANCollectionMetadata: Codable, Sendable {
     let version: Int
+    let transferID: String
+    let manifestHash: String
     let folderName: String
     let fileCount: Int
     let totalSize: Int64
 }
 
 struct LANFileMetadata: Codable, Sendable {
+    let index: Int
     let filename: String
     let size: Int64
+}
+
+struct LANResumeResponse: Codable, Sendable {
+    let version: Int
+    let type: String
+    let transferID: String
+    let manifestHash: String
+    let alreadyCommitted: Bool
+    let completedIndexes: [Int]
+    let completedBytes: Int64
+}
+
+struct LANCommitAck: Codable, Sendable {
+    let version: Int
+    let type: String
+    let transferID: String
+    let folderName: String
+    let fileCount: Int
+    let totalSize: Int64
 }
 
 enum LANAddress {
@@ -165,11 +201,22 @@ final class LANVaultReceiver: ObservableObject {
     @Published private(set) var expectedBytes: Int64 = 0
     @Published private(set) var errorMessage: String?
     @Published private(set) var completedEntryName: String?
+    @Published private(set) var resumedFiles = 0
+    @Published private(set) var resumedBytes: Int64 = 0
 
     private weak var vault: PrivateVaultSession?
     private var collectionContext: PrivateVaultNetworkCollectionContext?
     private var core: LANTransferServerCore?
     private var operationID = UUID()
+
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    private var backgroundGraceTask: Task<Void, Never>?
+
+    // Bounded tolerance for Notification Center / Control Center / short
+    // LiveContainer lifecycle transitions. This is intentionally not a
+    // general-purpose background transfer mode.
+    private static let backgroundGraceNanoseconds: UInt64 =
+        20 * 1_000_000_000
 
     var address: String {
         LANAddress.preferredIPv4() ?? "IP no detectada"
@@ -225,6 +272,50 @@ final class LANVaultReceiver: ObservableObject {
                         self.state = .receiving
                     }
                 },
+                onResume: { [weak self] files, bytes in
+                    Task { @MainActor in
+                        guard
+                            let self,
+                            self.operationID == operation
+                        else { return }
+                        self.resumedFiles = files
+                        self.resumedBytes = bytes
+                        self.filesReceived = files
+                        self.bytesReceived = bytes
+                    }
+                },
+                onAlreadyCommitted: { [weak self] metadata in
+                    Task { @MainActor in
+                        guard
+                            let self,
+                            self.operationID == operation
+                        else { return }
+
+                        self.collectionName = metadata.folderName
+                        self.expectedFiles = metadata.fileCount
+                        self.expectedBytes = metadata.totalSize
+                        self.filesReceived = metadata.fileCount
+                        self.bytesReceived = metadata.totalSize
+                        self.completedEntryName = metadata.folderName
+                        self.collectionContext = nil
+                        self.endTransientBackgroundGrace()
+                        LANTransferActivity.shared.end()
+                        self.state = .completed
+                    }
+                },
+                onClosed: { [weak self] in
+                    Task { @MainActor in
+                        guard
+                            let self,
+                            self.operationID == operation
+                        else { return }
+
+                        // Release the protocol core as soon as the final ACK (or
+                        // idempotent already-committed response) has left the
+                        // socket. The core owns copied vault/transport key material.
+                        self.core = nil
+                    }
+                },
                 onFile: { [weak self] metadata, completedFiles in
                     Task { @MainActor in
                         guard
@@ -248,19 +339,15 @@ final class LANVaultReceiver: ObservableObject {
                 onSuccess: { [weak self] metadata, files in
                     Task { @MainActor in
                         guard let self else {
-                            for file in files {
-                                try? FileManager.default.removeItem(at: file.blobURL)
-                            }
+                            // Completed files are already authenticated and
+                            // journaled. Preserve them for a future resume.
                             return
                         }
 
                         guard self.operationID == operation else {
-                            // The view/session was cancelled after the final byte
-                            // arrived but before MainActor could commit the index.
-                            // These blobs were never referenced, so delete them.
-                            for file in files {
-                                try? FileManager.default.removeItem(at: file.blobURL)
-                            }
+                            // The user closed/locked the receiver after the final
+                            // byte arrived. Preserve the completed journal rather
+                            // than forcing a multi-gigabyte retransmission.
                             return
                         }
 
@@ -285,6 +372,8 @@ final class LANVaultReceiver: ObservableObject {
             self.state = .idle
             self.errorMessage = nil
             self.completedEntryName = nil
+            self.resumedFiles = 0
+            self.resumedBytes = 0
             self.collectionName = ""
             self.currentFilename = ""
             self.filesReceived = 0
@@ -292,14 +381,19 @@ final class LANVaultReceiver: ObservableObject {
             self.bytesReceived = 0
             self.expectedBytes = 0
 
+            LANTransferActivity.shared.begin()
             server.start()
         } catch {
+            LANTransferActivity.shared.end()
             state = .failed
             errorMessage = error.localizedDescription
         }
     }
 
     func stop() {
+        endTransientBackgroundGrace()
+        LANTransferActivity.shared.end()
+
         operationID = UUID()
         core?.cancel()
         core = nil
@@ -311,6 +405,77 @@ final class LANVaultReceiver: ObservableObject {
         if state != .completed {
             state = .idle
         }
+    }
+
+    func beginTransientBackgroundGrace() {
+        guard
+            LANTransferActivity.shared.isActive,
+            state == .listening || state == .receiving
+        else {
+            return
+        }
+
+        if backgroundTaskID == .invalid {
+            backgroundTaskID = UIApplication.shared.beginBackgroundTask(
+                withName: "Nikaido Link transient background"
+            ) { [weak self] in
+                Task { @MainActor in
+                    self?.expireTransientBackgroundGrace()
+                }
+            }
+        }
+
+        backgroundGraceTask?.cancel()
+
+        backgroundGraceTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            try? await Task.sleep(
+                nanoseconds: Self.backgroundGraceNanoseconds
+            )
+
+            guard !Task.isCancelled else { return }
+
+            if UIApplication.shared.applicationState == .background {
+                expireTransientBackgroundGrace()
+            }
+        }
+    }
+
+    func endTransientBackgroundGrace() {
+        backgroundGraceTask?.cancel()
+        backgroundGraceTask = nil
+
+        if backgroundTaskID != .invalid {
+            UIApplication.shared.endBackgroundTask(backgroundTaskID)
+            backgroundTaskID = .invalid
+        }
+    }
+
+    private func expireTransientBackgroundGrace() {
+        guard LANTransferActivity.shared.isActive else {
+            endTransientBackgroundGrace()
+            return
+        }
+
+        endTransientBackgroundGrace()
+        LANTransferActivity.shared.end()
+
+        operationID = UUID()
+        core?.cancel()
+        core = nil
+        collectionContext = nil
+        port = nil
+        token = ""
+        currentFilename = ""
+
+        state = .failed
+        errorMessage = LANTransferError.backgroundGraceExpired.localizedDescription
+
+        NotificationCenter.default.post(
+            name: .nikaidoLinkGraceExpired,
+            object: nil
+        )
     }
 
     private func handleSuccess(
@@ -325,20 +490,28 @@ final class LANVaultReceiver: ObservableObject {
         do {
             let folder = try vault.commitNetworkCollection(
                 context,
+                transferID: metadata.transferID,
                 folderName: metadata.folderName,
                 files: files
             )
 
+            core?.confirmCommitted(
+                metadata: metadata,
+                folderName: folder.name
+            )
             collectionContext = nil
-            core = nil
             completedEntryName = folder.name
             filesReceived = metadata.fileCount
             bytesReceived = metadata.totalSize
+            endTransientBackgroundGrace()
+            LANTransferActivity.shared.end()
             state = .completed
         } catch {
-            vault.abandonNetworkCollection(files)
             collectionContext = nil
+            core?.failCommit(error)
             core = nil
+            endTransientBackgroundGrace()
+            LANTransferActivity.shared.end()
             state = .failed
             errorMessage = error.localizedDescription
         }
@@ -351,18 +524,21 @@ final class LANVaultReceiver: ObservableObject {
         core?.cancel()
         core = nil
 
-        if let vault {
-            vault.abandonNetworkCollection(files)
-        }
+        // Completed files are already authenticated and journaled inside
+        // Nikaido Vault's hidden pending area. Keep them for file-level resume.
+        // Only the current incomplete file is deleted by the core.
+        vault?.refreshOperationalStatus()
 
         collectionContext = nil
+        endTransientBackgroundGrace()
+        LANTransferActivity.shared.end()
         state = .failed
         errorMessage = error.localizedDescription
     }
 }
 
 private final class LANTransferServerCore {
-    private static let magic = Data("SSVLAN03".utf8)
+    private static let magic = Data("NXLINK04".utf8)
 
     private static let maximumTotalSize: Int64 =
         100 * 1024 * 1024 * 1024
@@ -381,6 +557,9 @@ private final class LANTransferServerCore {
 
     private let onReady: (UInt16) -> Void
     private let onCollection: (LANCollectionMetadata) -> Void
+    private let onResume: (Int, Int64) -> Void
+    private let onAlreadyCommitted: (LANCollectionMetadata) -> Void
+    private let onClosed: () -> Void
     private let onFile: (LANFileMetadata, Int) -> Void
     private let onProgress: (Int64, Int) -> Void
     private let onSuccess: (
@@ -393,7 +572,7 @@ private final class LANTransferServerCore {
     ) -> Void
 
     private let queue = DispatchQueue(
-        label: "com.teamnikaido.solidsecviewer.lan.v3",
+        label: "com.teamnikaido.nikaidoexplorer.link.v4",
         qos: .userInitiated
     )
 
@@ -406,11 +585,15 @@ private final class LANTransferServerCore {
     private var currentPending: PrivateVaultPendingNetworkFile?
 
     private var pendingFiles: [PrivateVaultPendingNetworkFile] = []
+    private var pendingState: NikaidoPendingTransferState?
     private var seenFilenames: Set<String> = []
+    private var seenIndexes: Set<Int> = []
     private var totalReceived: Int64 = 0
     private var currentFileReceived: Int64 = 0
     private var inactivityWorkItem: DispatchWorkItem?
     private var expectedTransportSequence: UInt64 = 0
+    private var serverTransportSequence: UInt64 = 0
+    private var waitingForCommitAck = false
     private var finished = false
 
     init(
@@ -418,6 +601,9 @@ private final class LANTransferServerCore {
         secret: Data,
         onReady: @escaping (UInt16) -> Void,
         onCollection: @escaping (LANCollectionMetadata) -> Void,
+        onResume: @escaping (Int, Int64) -> Void,
+        onAlreadyCommitted: @escaping (LANCollectionMetadata) -> Void,
+        onClosed: @escaping () -> Void,
         onFile: @escaping (LANFileMetadata, Int) -> Void,
         onProgress: @escaping (Int64, Int) -> Void,
         onSuccess: @escaping (
@@ -435,6 +621,9 @@ private final class LANTransferServerCore {
         )
         self.onReady = onReady
         self.onCollection = onCollection
+        self.onResume = onResume
+        self.onAlreadyCommitted = onAlreadyCommitted
+        self.onClosed = onClosed
         self.onFile = onFile
         self.onProgress = onProgress
         self.onSuccess = onSuccess
@@ -509,9 +698,8 @@ private final class LANTransferServerCore {
                 )
             }
 
-            for file in self.pendingFiles {
-                try? FileManager.default.removeItem(at: file.blobURL)
-            }
+            // Completed pending files intentionally remain encrypted in the
+            // hidden journal so the same transfer can resume later.
         }
     }
 
@@ -586,7 +774,9 @@ private final class LANTransferServerCore {
             )
 
             guard
-                metadata.version == 3,
+                metadata.version == 4,
+                Self.isHexDigest(metadata.transferID),
+                Self.isHexDigest(metadata.manifestHash),
                 metadata.folderName.lowercased().hasSuffix(".sec"),
                 metadata.fileCount > 0,
                 metadata.fileCount <= Self.maximumFileCount,
@@ -597,12 +787,104 @@ private final class LANTransferServerCore {
             }
 
             try validateName(metadata.folderName)
-            try ensureFreeSpace(for: metadata.totalSize)
-
             collection = metadata
-            armInactivityTimeout(Self.transferInactivityTimeout)
             onCollection(metadata)
-            readNextFileMetadata(from: connection)
+
+            if context.committedTransferIDs.contains(metadata.transferID.lowercased()) {
+                let response = LANResumeResponse(
+                    version: 4,
+                    type: "resume",
+                    transferID: metadata.transferID,
+                    manifestHash: metadata.manifestHash,
+                    alreadyCommitted: true,
+                    completedIndexes: [],
+                    completedBytes: metadata.totalSize
+                )
+
+                try sendServerJSON(
+                    response,
+                    over: connection
+                ) { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success:
+                        self.onAlreadyCommitted(metadata)
+                        self.finished = true
+                        self.connection?.cancel()
+                        self.connection = nil
+                        self.listener?.cancel()
+                        self.listener = nil
+                        self.onClosed()
+                    case .failure(let error):
+                        self.fail(error)
+                    }
+                }
+                return
+            }
+
+            let state = try NikaidoTransferJournal.openOrCreate(
+                root: context.pendingDirectory,
+                key: context.key,
+                transferID: metadata.transferID,
+                manifestHash: metadata.manifestHash,
+                folderName: metadata.folderName,
+                fileCount: metadata.fileCount,
+                totalSize: metadata.totalSize,
+                parentID: context.parentID
+            )
+
+            pendingState = state
+            pendingFiles = try state.completed.map { record in
+                let blobURL = try NikaidoTransferJournal.pendingBlobURL(
+                    root: context.pendingDirectory,
+                    transferID: state.transferID,
+                    blobName: record.blobName
+                )
+
+                return PrivateVaultPendingNetworkFile(
+                    sourceIndex: record.sourceIndex,
+                    id: record.id,
+                    blobName: record.blobName,
+                    blobURL: blobURL,
+                    filename: record.filename,
+                    originalSize: record.originalSize,
+                    contentSHA256: record.contentSHA256
+                )
+            }
+
+            seenFilenames = Set(pendingFiles.map(\.filename))
+            seenIndexes = Set(pendingFiles.map(\.sourceIndex))
+            totalReceived = state.completedBytes
+
+            let remaining = max(Int64(0), metadata.totalSize - totalReceived)
+            try ensureFreeSpace(for: remaining)
+
+            let response = LANResumeResponse(
+                version: 4,
+                type: "resume",
+                transferID: metadata.transferID,
+                manifestHash: metadata.manifestHash,
+                alreadyCommitted: false,
+                completedIndexes: state.completedIndexes,
+                completedBytes: state.completedBytes
+            )
+
+            armInactivityTimeout(Self.transferInactivityTimeout)
+            onResume(pendingFiles.count, totalReceived)
+
+            try sendServerJSON(
+                response,
+                over: connection
+            ) { [weak self] result in
+                guard let self else { return }
+
+                switch result {
+                case .success:
+                    self.readNextFileMetadata(from: connection)
+                case .failure(let error):
+                    self.fail(error)
+                }
+            }
         } catch {
             fail(error)
         }
@@ -643,16 +925,23 @@ private final class LANTransferServerCore {
 
             try validateName(metadata.filename)
 
-            guard !seenFilenames.contains(metadata.filename) else {
-                throw LANTransferError.duplicateFilename(metadata.filename)
-            }
-            seenFilenames.insert(metadata.filename)
-
-            guard metadata.size > 0 else {
+            guard
+                metadata.index >= 0,
+                let collection,
+                metadata.index < collection.fileCount,
+                !seenIndexes.contains(metadata.index)
+            else {
                 throw LANTransferError.invalidMetadata
             }
 
-            guard let collection else {
+            guard !seenFilenames.contains(metadata.filename) else {
+                throw LANTransferError.duplicateFilename(metadata.filename)
+            }
+
+            seenIndexes.insert(metadata.index)
+            seenFilenames.insert(metadata.filename)
+
+            guard metadata.size > 0 else {
                 throw LANTransferError.invalidMetadata
             }
 
@@ -668,10 +957,14 @@ private final class LANTransferServerCore {
 
             let id = UUID()
             let blobName = id.uuidString + ".ssvb"
-            let blobURL = context.blobsDirectory
-                .appendingPathComponent(blobName)
+            let blobURL = try NikaidoTransferJournal.pendingBlobURL(
+                root: context.pendingDirectory,
+                transferID: collection.transferID,
+                blobName: blobName
+            )
 
             let pending = PrivateVaultPendingNetworkFile(
+                sourceIndex: metadata.index,
                 id: id,
                 blobName: blobName,
                 blobURL: blobURL,
@@ -805,16 +1098,41 @@ private final class LANTransferServerCore {
             let contentSHA256 = try writer.finish()
             currentWriter = nil
 
-            pendingFiles.append(
-                PrivateVaultPendingNetworkFile(
-                    id: pending.id,
-                    blobName: pending.blobName,
-                    blobURL: pending.blobURL,
-                    filename: pending.filename,
-                    originalSize: pending.originalSize,
-                    contentSHA256: contentSHA256
-                )
+            let completed = PrivateVaultPendingNetworkFile(
+                sourceIndex: pending.sourceIndex,
+                id: pending.id,
+                blobName: pending.blobName,
+                blobURL: pending.blobURL,
+                filename: pending.filename,
+                originalSize: pending.originalSize,
+                contentSHA256: contentSHA256
             )
+
+            guard
+                var state = pendingState,
+                let collection
+            else {
+                throw LANTransferError.invalidMetadata
+            }
+
+            let record = NikaidoPendingTransferRecord(
+                sourceIndex: completed.sourceIndex,
+                id: completed.id,
+                blobName: completed.blobName,
+                filename: completed.filename,
+                originalSize: completed.originalSize,
+                contentSHA256: contentSHA256
+            )
+
+            try NikaidoTransferJournal.appendCompleted(
+                record,
+                to: &state,
+                root: context.pendingDirectory,
+                key: context.key
+            )
+
+            pendingState = state
+            pendingFiles.append(completed)
             currentFile = nil
             currentPending = nil
             currentFileReceived = 0
@@ -837,14 +1155,146 @@ private final class LANTransferServerCore {
             return
         }
 
-        finished = true
+        waitingForCommitAck = true
         inactivityWorkItem?.cancel()
         inactivityWorkItem = nil
-        connection?.cancel()
-        connection = nil
-        listener?.cancel()
-        listener = nil
         onSuccess(collection, pendingFiles)
+    }
+
+    func confirmCommitted(
+        metadata: LANCollectionMetadata,
+        folderName: String
+    ) {
+        queue.async { [weak self] in
+            guard
+                let self,
+                !self.finished,
+                self.waitingForCommitAck,
+                let connection = self.connection
+            else {
+                return
+            }
+
+            let ack = LANCommitAck(
+                version: 4,
+                type: "committed",
+                transferID: metadata.transferID,
+                folderName: folderName,
+                fileCount: metadata.fileCount,
+                totalSize: metadata.totalSize
+            )
+
+            do {
+                try self.sendServerJSON(
+                    ack,
+                    over: connection
+                ) { [weak self] result in
+                    guard let self else { return }
+
+                    switch result {
+                    case .success:
+                        self.finished = true
+                        self.waitingForCommitAck = false
+                        self.connection?.cancel()
+                        self.connection = nil
+                        self.listener?.cancel()
+                        self.listener = nil
+                        self.onClosed()
+
+                    case .failure:
+                        // The encrypted index is already committed. Losing the
+                        // final ACK must not make the iPhone report data loss.
+                        // The PC will retry, and sourceTransferID makes that retry
+                        // idempotently return alreadyCommitted.
+                        self.finished = true
+                        self.waitingForCommitAck = false
+                        self.connection?.cancel()
+                        self.connection = nil
+                        self.listener?.cancel()
+                        self.listener = nil
+                        self.onClosed()
+                    }
+                }
+            } catch {
+                self.finished = true
+                self.waitingForCommitAck = false
+                self.connection?.cancel()
+                self.connection = nil
+                self.listener?.cancel()
+                self.listener = nil
+                self.onClosed()
+            }
+        }
+    }
+
+    func failCommit(_ error: Error) {
+        queue.async { [weak self] in
+            self?.fail(error)
+        }
+    }
+
+
+    private func sendServerJSON<T: Encodable>(
+        _ value: T,
+        over connection: NWConnection,
+        completion: @escaping (Result<Void, Error>) -> Void
+    ) throws {
+        let plaintext = try JSONEncoder().encode(value)
+        let encrypted = try sealServerFrame(plaintext)
+
+        guard encrypted.count <= Self.maximumMetadataFrame else {
+            throw LANTransferError.invalidFrame
+        }
+
+        var length = UInt32(encrypted.count).bigEndian
+        let lengthData = Data(
+            bytes: &length,
+            count: MemoryLayout<UInt32>.size
+        )
+
+        var packet = Data()
+        packet.reserveCapacity(4 + encrypted.count)
+        packet.append(lengthData)
+        packet.append(encrypted)
+
+        connection.send(
+            content: packet,
+            completion: .contentProcessed { error in
+                if let error {
+                    completion(.failure(error))
+                } else {
+                    completion(.success(()))
+                }
+            }
+        )
+    }
+
+    private func sealServerFrame(_ plaintext: Data) throws -> Data {
+        guard serverTransportSequence < UInt64.max else {
+            throw LANTransferError.invalidFrame
+        }
+
+        var sequence = serverTransportSequence.bigEndian
+        var framed = Data(
+            bytes: &sequence,
+            count: MemoryLayout<UInt64>.size
+        )
+        framed.append(plaintext)
+        serverTransportSequence += 1
+
+        let nonceData = try PrivateVaultCrypto.randomData(count: 12)
+        let nonce = try AES.GCM.Nonce(data: nonceData)
+        let box = try AES.GCM.seal(
+            framed,
+            using: transferKey,
+            nonce: nonce
+        )
+
+        guard let combined = box.combined else {
+            throw LANTransferError.authenticationFailed
+        }
+
+        return combined
     }
 
     private func readEncryptedMetadataLength(
@@ -913,6 +1363,17 @@ private final class LANTransferServerCore {
         }
     }
 
+
+    private static func isHexDigest(_ value: String) -> Bool {
+        guard value.count == 64 else { return false }
+
+        return value.utf8.allSatisfy { byte in
+            (48...57).contains(byte) ||
+            (65...70).contains(byte) ||
+            (97...102).contains(byte)
+        }
+    }
+
     private func validateName(_ text: String) throws {
         guard
             !text.isEmpty,
@@ -929,6 +1390,8 @@ private final class LANTransferServerCore {
     }
 
     private func ensureFreeSpace(for requiredBytes: Int64) throws {
+        guard requiredBytes > 0 else { return }
+
         let attributes = try FileManager.default.attributesOfFileSystem(
             forPath: context.blobsDirectory.path
         )
@@ -989,10 +1452,7 @@ private final class LANTransferServerCore {
             )
         }
 
-        for file in pendingFiles {
-            try? FileManager.default.removeItem(at: file.blobURL)
-        }
-
+        // Completed files remain in the encrypted journal for resume.
         onFailure(error, allFiles)
     }
 

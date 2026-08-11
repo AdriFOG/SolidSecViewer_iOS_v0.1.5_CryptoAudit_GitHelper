@@ -13,6 +13,8 @@ enum PrivateVaultCryptoError: Error, LocalizedError {
     case integrityMismatch
     case unexpectedEOF
     case fileTooLarge
+    case randomAccessManifestMissing
+    case operationCancelled
 
     var errorDescription: String? {
         switch self {
@@ -34,6 +36,10 @@ enum PrivateVaultCryptoError: Error, LocalizedError {
             return "El archivo cifrado terminó antes de lo esperado."
         case .fileTooLarge:
             return "El archivo es demasiado grande para esta operación."
+        case .randomAccessManifestMissing:
+            return "Falta metadata autenticada para acceso aleatorio seguro."
+        case .operationCancelled:
+            return "La operación criptográfica fue cancelada."
         }
     }
 }
@@ -279,6 +285,438 @@ enum PrivateVaultCrypto {
         }
     }
 
+
+    struct RandomAccessManifest: Sendable {
+        let encodedChunkSize: Int
+        let plaintextSize: Int64
+        let frameSHA256: [Data]
+    }
+
+    /// Verifies an existing SSVB0001 blob end-to-end without creating any
+    /// plaintext file. This is used once for legacy videos before enabling
+    /// random access. The existing whole-file SHA-256 from the encrypted index
+    /// anchors the new per-frame manifest to the original imported bytes.
+    static func buildVerifiedRandomAccessManifest(
+        source: URL,
+        key: Data,
+        expectedPlaintextSize: Int64,
+        expectedSHA256: Data,
+        shouldCancel: @Sendable () -> Bool = { false }
+    ) throws -> RandomAccessManifest {
+        guard key.count == keySize else {
+            throw PrivateVaultCryptoError.invalidKey
+        }
+
+        guard expectedPlaintextSize >= 0 else {
+            throw PrivateVaultCryptoError.fileTooLarge
+        }
+
+        guard expectedSHA256.count == 32 else {
+            throw PrivateVaultCryptoError.randomAccessManifestMissing
+        }
+
+        let input = try FileHandle(forReadingFrom: source)
+        defer { try? input.close() }
+
+        let encodedChunkSize = try validateHeader(input)
+
+        var frameHashes: [Data] = []
+        let estimatedCount64 =
+            expectedPlaintextSize / Int64(max(encodedChunkSize, 1))
+            + (expectedPlaintextSize % Int64(max(encodedChunkSize, 1)) == 0 ? 0 : 1)
+
+        if estimatedCount64 <= Int64(Int.max) {
+            frameHashes.reserveCapacity(Int(estimatedCount64))
+        }
+
+        var wholeHasher = SHA256()
+        var plaintextBytes: Int64 = 0
+        var sawShortChunk = false
+
+        while true {
+            if shouldCancel() {
+                throw PrivateVaultCryptoError.operationCancelled
+            }
+
+            guard let lengthData = try input.read(upToCount: 4) else {
+                break
+            }
+
+            if lengthData.isEmpty {
+                break
+            }
+
+            guard lengthData.count == 4 else {
+                throw PrivateVaultCryptoError.unexpectedEOF
+            }
+
+            if sawShortChunk {
+                // StreamEncryptor emits only one partial final frame.
+                throw PrivateVaultCryptoError.malformedCiphertext
+            }
+
+            let combinedLength = Int(parseUInt32(lengthData))
+            guard
+                combinedLength >= 28,
+                combinedLength <= encodedChunkSize + 28
+            else {
+                throw PrivateVaultCryptoError.malformedCiphertext
+            }
+
+            let combined = try readExactly(input, count: combinedLength)
+            frameHashes.append(Data(SHA256.hash(data: combined)))
+
+            let plaintext = try openSmall(combined, key: key)
+            guard
+                !plaintext.isEmpty,
+                plaintext.count <= encodedChunkSize
+            else {
+                throw PrivateVaultCryptoError.malformedCiphertext
+            }
+
+            if plaintext.count < encodedChunkSize {
+                sawShortChunk = true
+            }
+
+            let added = plaintextBytes.addingReportingOverflow(
+                Int64(plaintext.count)
+            )
+            guard !added.overflow else {
+                throw PrivateVaultCryptoError.fileTooLarge
+            }
+
+            plaintextBytes = added.partialValue
+            wholeHasher.update(data: plaintext)
+        }
+
+        // Zero-byte blobs are valid and contain no encrypted frames.
+        if expectedPlaintextSize == 0, !frameHashes.isEmpty {
+            throw PrivateVaultCryptoError.integrityMismatch
+        }
+
+        if shouldCancel() {
+            throw PrivateVaultCryptoError.operationCancelled
+        }
+
+        guard plaintextBytes == expectedPlaintextSize else {
+            throw PrivateVaultCryptoError.integrityMismatch
+        }
+
+        guard Data(wholeHasher.finalize()) == expectedSHA256 else {
+            throw PrivateVaultCryptoError.integrityMismatch
+        }
+
+        return RandomAccessManifest(
+            encodedChunkSize: encodedChunkSize,
+            plaintextSize: plaintextBytes,
+            frameSHA256: frameHashes
+        )
+    }
+
+    /// Authenticated random-access reader for an existing SSVB0001 blob.
+    ///
+    /// Each accessed frame is checked twice:
+    /// 1. SHA-256 must match the expected ordinal position in the encrypted
+    ///    vault index; this rejects otherwise-valid frame reordering.
+    /// 2. AES-GCM authenticates the frame contents before plaintext is returned.
+    ///
+    /// The reader never materializes the complete plaintext file.
+    final class RandomAccessReader: @unchecked Sendable {
+        private struct Frame {
+            let combinedOffset: UInt64
+            let combinedLength: Int
+            let plaintextOffset: Int64
+            let plaintextLength: Int
+        }
+
+        private let lock = NSLock()
+        private var handle: FileHandle?
+        private var key: Data
+        private let expectedPlaintextSize: Int64
+        private let frameSHA256: [Data]
+        private let encodedChunkSize: Int
+        private var frames: [Frame] = []
+        private var invalidated = false
+
+        private let cache = NSCache<NSNumber, NSData>()
+
+        init(
+            source: URL,
+            key: Data,
+            expectedPlaintextSize: Int64,
+            frameSHA256: [Data]
+        ) throws {
+            guard key.count == PrivateVaultCrypto.keySize else {
+                throw PrivateVaultCryptoError.invalidKey
+            }
+
+            guard expectedPlaintextSize >= 0 else {
+                throw PrivateVaultCryptoError.fileTooLarge
+            }
+
+            for digest in frameSHA256 {
+                guard digest.count == 32 else {
+                    throw PrivateVaultCryptoError.malformedCiphertext
+                }
+            }
+
+            self.key = key
+            self.expectedPlaintextSize = expectedPlaintextSize
+            self.frameSHA256 = frameSHA256
+
+            let opened = try FileHandle(forReadingFrom: source)
+
+            do {
+                let chunkSize = try PrivateVaultCrypto.validateHeader(opened)
+                self.encodedChunkSize = chunkSize
+                self.handle = opened
+
+                cache.countLimit = 8
+                cache.totalCostLimit = 8 * 1024 * 1024
+
+                try buildFrameTable()
+            } catch {
+                try? opened.close()
+                throw error
+            }
+        }
+
+        deinit {
+            invalidate()
+        }
+
+        var plaintextSize: Int64 {
+            expectedPlaintextSize
+        }
+
+        func invalidate() {
+            lock.lock()
+            defer { lock.unlock() }
+
+            guard !invalidated else { return }
+            invalidated = true
+
+            cache.removeAllObjects()
+            try? handle?.close()
+            handle = nil
+
+            if !key.isEmpty {
+                key.resetBytes(in: 0..<key.count)
+            }
+            key.removeAll(keepingCapacity: false)
+            frames.removeAll(keepingCapacity: false)
+        }
+
+        func read(offset: Int64, length: Int) throws -> Data {
+            guard offset >= 0, length >= 0 else {
+                throw PrivateVaultCryptoError.malformedCiphertext
+            }
+
+            guard length > 0, offset < expectedPlaintextSize else {
+                return Data()
+            }
+
+            let remaining = expectedPlaintextSize - offset
+            let requested = min(Int64(length), remaining)
+            guard requested <= Int64(Int.max) else {
+                throw PrivateVaultCryptoError.fileTooLarge
+            }
+
+            lock.lock()
+            defer { lock.unlock() }
+
+            guard !invalidated, handle != nil else {
+                throw PrivateVaultCryptoError.authenticationFailed
+            }
+
+            var result = Data()
+            result.reserveCapacity(Int(requested))
+
+            var cursor = offset
+            let end = offset + requested
+
+            while cursor < end {
+                let frameIndex64 = cursor / Int64(encodedChunkSize)
+                guard
+                    frameIndex64 >= 0,
+                    frameIndex64 <= Int64(Int.max)
+                else {
+                    throw PrivateVaultCryptoError.fileTooLarge
+                }
+
+                let frameIndex = Int(frameIndex64)
+                guard frameIndex < frames.count else {
+                    throw PrivateVaultCryptoError.unexpectedEOF
+                }
+
+                let frame = frames[frameIndex]
+                let plaintext = try plaintextFrame(at: frameIndex)
+
+                let relative = cursor - frame.plaintextOffset
+                guard
+                    relative >= 0,
+                    relative <= Int64(frame.plaintextLength)
+                else {
+                    throw PrivateVaultCryptoError.malformedCiphertext
+                }
+
+                let available = Int64(frame.plaintextLength) - relative
+                let take64 = min(available, end - cursor)
+                guard
+                    take64 > 0,
+                    take64 <= Int64(Int.max),
+                    relative <= Int64(Int.max)
+                else {
+                    throw PrivateVaultCryptoError.malformedCiphertext
+                }
+
+                let start = Int(relative)
+                let take = Int(take64)
+                result.append(plaintext[start..<(start + take)])
+                cursor += take64
+            }
+
+            return result
+        }
+
+        private func buildFrameTable() throws {
+            guard let handle else {
+                throw PrivateVaultCryptoError.authenticationFailed
+            }
+
+            let fileEnd = try handle.seekToEnd()
+            try handle.seek(toOffset: 12)
+
+            var fileCursor: UInt64 = 12
+            var plaintextCursor: Int64 = 0
+            var sawShortChunk = false
+            var discovered: [Frame] = []
+            discovered.reserveCapacity(frameSHA256.count)
+
+            while fileCursor < fileEnd {
+                if sawShortChunk {
+                    throw PrivateVaultCryptoError.malformedCiphertext
+                }
+
+                let lengthData = try PrivateVaultCrypto.readExactly(
+                    handle,
+                    count: 4
+                )
+                fileCursor += 4
+
+                let combinedLength = Int(
+                    PrivateVaultCrypto.parseUInt32(lengthData)
+                )
+
+                guard
+                    combinedLength >= 28,
+                    combinedLength <= encodedChunkSize + 28
+                else {
+                    throw PrivateVaultCryptoError.malformedCiphertext
+                }
+
+                let combinedLength64 = UInt64(combinedLength)
+                guard
+                    combinedLength64 <= fileEnd - fileCursor
+                else {
+                    throw PrivateVaultCryptoError.unexpectedEOF
+                }
+
+                let plaintextLength = combinedLength - 28
+                guard
+                    plaintextLength > 0,
+                    plaintextLength <= encodedChunkSize
+                else {
+                    throw PrivateVaultCryptoError.malformedCiphertext
+                }
+
+                discovered.append(
+                    Frame(
+                        combinedOffset: fileCursor,
+                        combinedLength: combinedLength,
+                        plaintextOffset: plaintextCursor,
+                        plaintextLength: plaintextLength
+                    )
+                )
+
+                if plaintextLength < encodedChunkSize {
+                    sawShortChunk = true
+                }
+
+                let added = plaintextCursor.addingReportingOverflow(
+                    Int64(plaintextLength)
+                )
+                guard !added.overflow else {
+                    throw PrivateVaultCryptoError.fileTooLarge
+                }
+                plaintextCursor = added.partialValue
+
+                fileCursor += combinedLength64
+                try handle.seek(toOffset: fileCursor)
+            }
+
+            guard
+                fileCursor == fileEnd,
+                plaintextCursor == expectedPlaintextSize,
+                discovered.count == frameSHA256.count
+            else {
+                throw PrivateVaultCryptoError.integrityMismatch
+            }
+
+            if expectedPlaintextSize == 0, !discovered.isEmpty {
+                throw PrivateVaultCryptoError.integrityMismatch
+            }
+
+            frames = discovered
+            try handle.seek(toOffset: 12)
+        }
+
+        private func plaintextFrame(at index: Int) throws -> Data {
+            if let cached = cache.object(forKey: NSNumber(value: index)) {
+                return Data(referencing: cached)
+            }
+
+            guard
+                index >= 0,
+                index < frames.count,
+                index < frameSHA256.count,
+                let handle
+            else {
+                throw PrivateVaultCryptoError.unexpectedEOF
+            }
+
+            let frame = frames[index]
+            try handle.seek(toOffset: frame.combinedOffset)
+
+            let combined = try PrivateVaultCrypto.readExactly(
+                handle,
+                count: frame.combinedLength
+            )
+
+            let actualFrameHash = Data(SHA256.hash(data: combined))
+            guard actualFrameHash == frameSHA256[index] else {
+                throw PrivateVaultCryptoError.integrityMismatch
+            }
+
+            let plaintext = try PrivateVaultCrypto.openSmall(
+                combined,
+                key: key
+            )
+
+            guard plaintext.count == frame.plaintextLength else {
+                throw PrivateVaultCryptoError.integrityMismatch
+            }
+
+            cache.setObject(
+                plaintext as NSData,
+                forKey: NSNumber(value: index),
+                cost: plaintext.count
+            )
+
+            return plaintext
+        }
+    }
+
     @discardableResult
     static func encryptFile(
         source: URL,
@@ -364,7 +802,8 @@ enum PrivateVaultCrypto {
         destination: URL,
         key: Data,
         expectedPlaintextSize: Int64? = nil,
-        expectedSHA256: Data? = nil
+        expectedSHA256: Data? = nil,
+        shouldCancel: @Sendable () -> Bool = { false }
     ) throws {
         guard key.count == keySize else {
             throw PrivateVaultCryptoError.invalidKey
@@ -398,6 +837,10 @@ enum PrivateVaultCrypto {
             var plaintextBytes: Int64 = 0
 
             while true {
+                if shouldCancel() {
+                    throw PrivateVaultCryptoError.operationCancelled
+                }
+
                 guard let lengthData = try input.read(upToCount: 4) else {
                     break
                 }
@@ -431,6 +874,10 @@ enum PrivateVaultCrypto {
                 try output.write(contentsOf: plaintext)
             }
 
+            if shouldCancel() {
+                throw PrivateVaultCryptoError.operationCancelled
+            }
+
             if let expectedPlaintextSize, plaintextBytes != expectedPlaintextSize {
                 throw PrivateVaultCryptoError.integrityMismatch
             }
@@ -456,7 +903,8 @@ enum PrivateVaultCrypto {
         key: Data,
         maxPlaintextBytes: Int = 150 * 1024 * 1024,
         expectedPlaintextSize: Int64? = nil,
-        expectedSHA256: Data? = nil
+        expectedSHA256: Data? = nil,
+        shouldCancel: @Sendable () -> Bool = { false }
     ) throws -> Data {
         guard key.count == keySize else {
             throw PrivateVaultCryptoError.invalidKey
@@ -471,6 +919,10 @@ enum PrivateVaultCrypto {
         var hasher = SHA256()
 
         while true {
+            if shouldCancel() {
+                throw PrivateVaultCryptoError.operationCancelled
+            }
+
             guard let lengthData = try input.read(upToCount: 4) else {
                 break
             }
@@ -504,6 +956,10 @@ enum PrivateVaultCrypto {
 
             hasher.update(data: plaintext)
             output.append(plaintext)
+        }
+
+        if shouldCancel() {
+            throw PrivateVaultCryptoError.operationCancelled
         }
 
         if let expectedPlaintextSize, Int64(output.count) != expectedPlaintextSize {

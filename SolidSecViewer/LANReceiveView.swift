@@ -17,7 +17,7 @@ struct LANReceiveView: View {
                         .font(.system(size: 62))
                         .foregroundStyle(.secondary)
 
-                    Text("Recibir .sec desde PC")
+                    Text("Nikaido Link")
                         .font(.title2.bold())
 
                     Text(
@@ -39,7 +39,7 @@ struct LANReceiveView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Transferencia LAN")
+            .navigationTitle("Nikaido Link")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Cerrar") {
@@ -62,6 +62,16 @@ struct LANReceiveView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.didEnterBackgroundNotification
+        )) { _ in
+            receiver.beginTransientBackgroundGrace()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIApplication.didBecomeActiveNotification
+        )) { _ in
+            receiver.endTransientBackgroundGrace()
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .nikaidoForceStopLink
         )) { _ in
             receiver.stop()
             dismiss()
@@ -99,7 +109,7 @@ struct LANReceiveView: View {
                 .buttonStyle(.bordered)
 
                 Text(
-                    "En la PC ejecuta ENVIAR_SEC_A_IPHONE.bat y selecciona "
+                    "En la PC ejecuta NIKAIDO_BRIDGE.bat y selecciona "
                     + "tu ZIP o directamente la carpeta .sec."
                 )
                 .font(.caption)
@@ -135,13 +145,25 @@ struct LANReceiveView: View {
                         )
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+
+                        if receiver.resumedFiles > 0 {
+                            Text(
+                                "Reanudados: \(receiver.resumedFiles) archivos • "
+                                + ByteCountFormatter.string(
+                                    fromByteCount: receiver.resumedBytes,
+                                    countStyle: .file
+                                )
+                            )
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                        }
                     }
                 } else {
                     ProgressView("Esperando a la PC…")
                 }
 
                 Text(
-                    "Mantén SolidSec abierto y ambos equipos en la misma red "
+                    "Mantén Nikaido Explorer abierto y ambos equipos en la misma red "
                     + "Wi‑Fi hasta terminar."
                 )
                 .font(.caption)
@@ -169,15 +191,15 @@ struct LANReceiveView: View {
             }
 
             Text(
-                "Solo los archivos cifrados de Solid Explorer quedaron "
+                "Solo los archivos cifrados de formato .sec quedaron "
                 + "almacenados, cada uno además protegido por AES‑256‑GCM "
-                + "de Mi bóveda."
+                + "de Nikaido Vault."
             )
             .font(.caption)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
 
-            Button("Volver a Mi bóveda") {
+            Button("Volver a Nikaido Vault") {
                 dismiss()
             }
             .buttonStyle(.borderedProminent)

@@ -50,7 +50,7 @@ enum SecZipImporter {
         var totalBytes: UInt64 = 0
 
         var score: UInt64 {
-            // A 36-byte file is a strong signal for Solid Explorer's .key entry.
+            // A 36-byte file is a strong signal for formato .sec's .key entry.
             UInt64(keySizedFiles) * 1_000_000_000
             + UInt64(fileCount) * 1_000_000
             + min(totalBytes, 999_999)
@@ -115,7 +115,7 @@ enum SecZipImporter {
                         ? UInt64.max
                         : sum.partialValue
 
-                    if entry.uncompressedSize == UInt64(SolidCrypto.headerSize) {
+                    if entry.uncompressedSize == UInt64(SecCollectionCrypto.headerSize) {
                         candidate.keySizedFiles += 1
                     }
                 }
@@ -126,7 +126,7 @@ enum SecZipImporter {
             // Fallback: if someone renamed the .sec directory before zipping it,
             // a 36-byte encrypted .key candidate can still reveal the parent.
             if entry.type == .file,
-               entry.uncompressedSize == UInt64(SolidCrypto.headerSize),
+               entry.uncompressedSize == UInt64(SecCollectionCrypto.headerSize),
                components.count >= 2
             {
                 let parent = components.dropLast().joined(separator: "/")
@@ -145,7 +145,7 @@ enum SecZipImporter {
 
         var candidate: Candidate
 
-        // A real Solid Explorer folder must contain the 36-byte encrypted .key
+        // A real formato .sec folder must contain the 36-byte encrypted .key
         // entry. Prefer only candidates with that signal so an unrelated large
         // folder named *.sec cannot outrank the real collection by file count.
         let signaled = candidates.values.filter { $0.keySizedFiles > 0 }
@@ -188,7 +188,7 @@ enum SecZipImporter {
             }
             realTotalBytes = sum.partialValue
 
-            if entry.uncompressedSize == UInt64(SolidCrypto.headerSize) {
+            if entry.uncompressedSize == UInt64(SecCollectionCrypto.headerSize) {
                 realKeySizedFiles += 1
             }
         }
@@ -224,7 +224,7 @@ enum SecZipImporter {
 
         let extractionRoot = tempRoot
             .appendingPathComponent(
-                "SolidSecZip-\(UUID().uuidString)",
+                "NikaidoExplorerZip-\(UUID().uuidString)",
                 isDirectory: true
             )
 

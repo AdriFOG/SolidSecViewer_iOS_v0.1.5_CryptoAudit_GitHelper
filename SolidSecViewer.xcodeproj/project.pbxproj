@@ -6,11 +6,11 @@
     objects = {
 
 /* Begin PBXBuildFile section */
-        A001 /* SolidSecViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B001 /* SolidSecViewerApp.swift */; };
+        A001 /* NikaidoExplorerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B001 /* NikaidoExplorerApp.swift */; };
         A002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002 /* ContentView.swift */; };
         A003 /* FolderPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003 /* FolderPicker.swift */; };
         A004 /* VaultItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = B004 /* VaultItem.swift */; };
-        A005 /* SolidCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B005 /* SolidCrypto.swift */; };
+        A005 /* SecCollectionCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = B005 /* SecCollectionCrypto.swift */; };
         A006 /* VaultSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = B006 /* VaultSession.swift */; };
         A007 /* VaultThumbnail.swift in Sources */ = {isa = PBXBuildFile; fileRef = B007 /* VaultThumbnail.swift */; };
         A008 /* MediaViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B008 /* MediaViewer.swift */; };
@@ -27,14 +27,21 @@
         A020 /* LANReceiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B020 /* LANReceiveView.swift */; };
         A021 /* StoredSecCollectionViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B021 /* StoredSecCollectionViewer.swift */; };
         A022 /* ImageDownsampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B022 /* ImageDownsampler.swift */; };
+        A023 /* LANTransferActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B023 /* LANTransferActivity.swift */; };
+        A024 /* StoredSecVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B024 /* StoredSecVideoPlayer.swift */; };
+        A025 /* NikaidoTransferJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = B025 /* NikaidoTransferJournal.swift */; };
+        A026 /* NikaidoVaultHealth.swift in Sources */ = {isa = PBXBuildFile; fileRef = B026 /* NikaidoVaultHealth.swift */; };
+        A027 /* NikaidoVaultMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = B027 /* NikaidoVaultMigration.swift */; };
+        A028 /* SecDirectVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B028 /* SecDirectVideoPlayer.swift */; };
+        A029 /* PrivateVaultVideoPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B029 /* PrivateVaultVideoPlayer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-        B001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolidSecViewerApp.swift; sourceTree = "<group>"; };
+        B001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NikaidoExplorerApp.swift; sourceTree = "<group>"; };
         B002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
         B003 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderPicker.swift; sourceTree = "<group>"; };
         B004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultItem.swift; sourceTree = "<group>"; };
-        B005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SolidCrypto.swift; sourceTree = "<group>"; };
+        B005 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecCollectionCrypto.swift; sourceTree = "<group>"; };
         B006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSession.swift; sourceTree = "<group>"; };
         B007 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultThumbnail.swift; sourceTree = "<group>"; };
         B008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaViewer.swift; sourceTree = "<group>"; };
@@ -51,6 +58,13 @@
         B020 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANReceiveView.swift; sourceTree = "<group>"; };
         B021 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredSecCollectionViewer.swift; sourceTree = "<group>"; };
         B022 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDownsampler.swift; sourceTree = "<group>"; };
+        B023 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LANTransferActivity.swift; sourceTree = "<group>"; };
+        B024 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredSecVideoPlayer.swift; sourceTree = "<group>"; };
+        B025 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NikaidoTransferJournal.swift; sourceTree = "<group>"; };
+        B026 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NikaidoVaultHealth.swift; sourceTree = "<group>"; };
+        B027 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NikaidoVaultMigration.swift; sourceTree = "<group>"; };
+        B028 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecDirectVideoPlayer.swift; sourceTree = "<group>"; };
+        B029 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivateVaultVideoPlayer.swift; sourceTree = "<group>"; };
         B100 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SolidSecViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -77,7 +91,7 @@
         D002 = {
             isa = PBXGroup;
             children = (
-                B001, B002, B003, B004, B005, B006, B007, B008, B009, B010, B011, B012, B013, B014, B015, B016,  B018, B019, B020, B021, B022,
+                B001, B002, B003, B004, B005, B006, B007, B008, B009, B010, B011, B012, B013, B014, B015, B016,  B018, B019, B020, B021, B022, B023, B024, B025, B026, B027, B028, B029,
             );
             path = SolidSecViewer;
             sourceTree = "<group>";
@@ -149,7 +163,7 @@
         C002 = {
             isa = PBXSourcesBuildPhase;
             buildActionMask = 2147483647;
-            files = (A001,A002,A003,A004,A005,A006,A007,A008,A009,A010,A011,A012,A013,A014,A016,A018,A019,A020,A021,A022,);
+            files = (A001,A002,A003,A004,A005,A006,A007,A008,A009,A010,A011,A012,A013,A014,A016,A018,A019,A020,A021,A022,A023,A024,A025,A026,A027,A028,A029,);
             runOnlyForDeploymentPostprocessing = 0;
         };
 /* End PBXSourcesBuildPhase section */
@@ -201,12 +215,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 19;
+                CURRENT_PROJECT_VERSION = 22;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.6.2;
+                MARKETING_VERSION = 0.8.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;
@@ -219,12 +233,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 19;
+                CURRENT_PROJECT_VERSION = 22;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.6.2;
+                MARKETING_VERSION = 0.8.0;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;

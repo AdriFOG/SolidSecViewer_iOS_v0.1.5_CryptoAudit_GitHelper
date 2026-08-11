@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct SolidSecViewerApp: App {
+struct NikaidoExplorerApp: App {
     @StateObject private var vault = VaultSession()
 
     var body: some Scene {

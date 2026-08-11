@@ -1,0 +1,43 @@
+NIKAIDO EXPLORER v0.8.0 LOCAL VALIDATION
+===========================================
+UTC: 2026-08-11T09:46:07Z
+
+[1] plutil project.pbxproj
+SolidSecViewer.xcodeproj/project.pbxproj: OK
+[2] plutil Info.plist
+SolidSecViewer/Info.plist: OK
+[3] Swift syntax parse
+Swift parse: 30/30 OK
+[4] Python warning-free py_compile
+Python py_compile: OK
+[5] Shell syntax
+bash -n: OK
+[6] Workflow YAML
+GitHub Actions YAML: OK
+[7] Project audit
+PROJECT AUDIT: OK (27 Swift sources referenced)
+SECURITY REGRESSION GUARDS: OK
+[8] Lifecycle guard
+LIFECYCLE GUARD: OK
+[9] Video guard
+INPLACE VIDEO GUARD: OK
+[10] Reliability guard
+NIKAIDO RELIABILITY GUARD: OK
+[11] PC companion protocol tests
+NIKAIDO BRIDGE E2E RESUME/ACK: OK
+NIKAIDO BRIDGE IDEMPOTENT RETRY: OK
+NIKAIDO BRIDGE RESUME CONSISTENCY: OK
+PC SENDER SELFTEST: OK
+[12] Legacy index compatibility executable
+INDEX COMPATIBILITY SELFTEST: OK
+[13] Source/reference counts
+App Swift sources on disk: 27
+PBX Swift file references: 27
+[14] Compatibility invariants
+Bundle/data/verifier/protocol invariants: OK
+[15] Visible legacy branding scan
+Visible legacy branding scan: OK
+[16] Export temp/lifecycle guards
+Export plaintext lifecycle: OK
+
+ALL AVAILABLE LOCAL VALIDATIONS: PASS

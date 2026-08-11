@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-title SolidSec Viewer - Actualizar GitHub
+title Nikaido Explorer - Actualizar GitHub
 cd /d "%~dp0"
 
 echo ============================================================
-echo   SOLIDSEC VIEWER - ACTUALIZAR REPO PERMANENTE
+echo   NIKAIDO EXPLORER - ACTUALIZAR REPO PERMANENTE
 echo ============================================================
 echo.
 echo Este BAT toma ESTA carpeta/build como la version nueva,
@@ -69,7 +69,7 @@ for /f "usebackq delims=" %%B in (`gh repo view "%REPO_FULL%" --json defaultBran
 if not defined DEFAULT_BRANCH set "DEFAULT_BRANCH=main"
 
 set "SOURCE_DIR=%CD%"
-set "TEMP_REPO=%TEMP%\SolidSecViewer_Update_%RANDOM%_%RANDOM%"
+set "TEMP_REPO=%TEMP%\NikaidoExplorer_Update_%RANDOM%_%RANDOM%"
 
 echo Repo:   %REPO_FULL%
 echo Rama:   %DEFAULT_BRANCH%
@@ -145,7 +145,7 @@ if not errorlevel 1 (
 
 for /f "usebackq delims=" %%T in (`powershell -NoProfile -Command "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'"`) do set "STAMP=%%T"
 
-git -C "%TEMP_REPO%" commit -m "Update SolidSec Viewer - %STAMP%"
+git -C "%TEMP_REPO%" commit -m "Update Nikaido Explorer - %STAMP%"
 if errorlevel 1 goto :fail
 
 echo [5/5] Subiendo a GitHub...

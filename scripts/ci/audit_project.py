@@ -127,7 +127,7 @@ if (
     raise SystemExit(1)
 
 
-if 'Data("SSVLAN03".utf8)' not in lan_receiver or "expectedTransportSequence" not in lan_receiver:
+if 'Data("NXLINK04".utf8)' not in lan_receiver or "expectedTransportSequence" not in lan_receiver:
     print("Regression: LAN frames are no longer sequence-bound (replay/reorder risk)")
     raise SystemExit(1)
 
@@ -165,15 +165,30 @@ if "refreshIndexBackupFromPrimary" not in private_session:
     raise SystemExit(1)
 
 private_view = (SRC / "PrivateVaultView.swift").read_text(encoding="utf-8")
-if "asCopy: false" not in private_view or "asCopy: true" in private_view:
-    print("Regression: file picker can create unnecessary plaintext import copies")
+import_picker_start = private_view.find("struct MultiFilePicker")
+if import_picker_start < 0:
+    print("Regression: MultiFilePicker missing")
+    raise SystemExit(1)
+import_picker_slice = private_view[import_picker_start:]
+if "forOpeningContentTypes: [.item]" not in import_picker_slice or "asCopy: false" not in import_picker_slice:
+    print("Regression: import picker can create unnecessary plaintext copies")
+    raise SystemExit(1)
+
+export_picker_start = private_view.find("struct NikaidoVaultExportPicker")
+export_picker_end = private_view.find("struct MultiFilePicker", export_picker_start)
+if export_picker_start < 0 or export_picker_end < 0:
+    print("Regression: explicit decrypted export picker missing")
+    raise SystemExit(1)
+export_picker_slice = private_view[export_picker_start:export_picker_end]
+if "forExporting: [url]" not in export_picker_slice or "asCopy: true" not in export_picker_slice:
+    print("Regression: explicit export must copy plaintext only to the user-selected destination")
     raise SystemExit(1)
 
 sender = (ROOT / "tools" / "LANTransfer" / "send_sec_collection.py").read_text(
     encoding="utf-8"
 )
-if 'MAGIC = b"SSVLAN03"' not in sender or "TransportSealer" not in sender:
-    print("Regression: Windows sender no longer matches sequence-bound LAN v3")
+if 'MAGIC = b"NXLINK04"' not in sender or "TransportSealer" not in sender:
+    print("Regression: Windows sender no longer matches sequence-bound Nikaido Link v4")
     raise SystemExit(1)
 
 # Full-ZIP-to-vault migration UI/source was intentionally removed from the

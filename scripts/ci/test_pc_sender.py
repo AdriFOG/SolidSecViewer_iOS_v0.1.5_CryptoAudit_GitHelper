@@ -2,6 +2,10 @@
 import hashlib
 import importlib.util
 import json
+import threading
+import sys
+import subprocess
+import os
 from pathlib import Path
 import socket
 import struct
@@ -13,7 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 ROOT = Path(__file__).resolve().parents[2]
 SENDER = ROOT / "tools" / "LANTransfer" / "send_sec_collection.py"
 
-spec = importlib.util.spec_from_file_location("solidsec_sender", SENDER)
+spec = importlib.util.spec_from_file_location("nikaido_bridge_sender", SENDER)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
@@ -28,7 +32,7 @@ def open_frame(secret: bytes, combined: bytes):
     return sequence, framed[8:]
 
 
-with tempfile.TemporaryDirectory(prefix="solidsec-pc-selftest-") as td:
+with tempfile.TemporaryDirectory(prefix="nikaido-pc-selftest-") as td:
     root = Path(td)
     archive = root / "fixture.zip"
 
@@ -155,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix="solidsec-pc-selftest-") as td:
     secret = bytes(range(16))
     aes = AESGCM(hashlib.sha256(secret).digest())
     sealer = module.TransportSealer(aes)
-    payload = b"SolidSec transport frame"
+    payload = b"Nikaido Link transport frame"
     sealed0 = sealer.seal(payload)
     sealed1 = sealer.seal(b"next")
     seq0, opened0 = open_frame(secret, sealed0)
@@ -168,7 +172,7 @@ with tempfile.TemporaryDirectory(prefix="solidsec-pc-selftest-") as td:
     left, right = socket.socketpair()
     try:
         metadata = {
-            "version": 3,
+            "version": 4,
             "folderName": "Photos.sec",
             "fileCount": 3,
             "totalSize": 336,
@@ -186,5 +190,342 @@ with tempfile.TemporaryDirectory(prefix="solidsec-pc-selftest-") as td:
     finally:
         left.close()
         right.close()
+
+
+# End-to-end loopback protocol test: fake an iPhone that already owns one
+# completed file, verify the real sender skips it, then require the final
+# encrypted commit ACK before process exit 0.
+with tempfile.TemporaryDirectory(prefix="nikaido-link-e2e-") as td:
+    root = Path(td)
+    direct = root / "Resume.sec"
+    direct.mkdir()
+    (direct / "keyCandidate").write_bytes(b"K" * 36)
+    (direct / "fileOne").write_bytes(b"A" * 100)
+    (direct / "fileTwo").write_bytes(b"B" * 200)
+
+    probe = module.find_sec_folder(direct)
+    module.validate_collection(probe)
+    transfer_id, manifest_hash = module.build_transfer_manifest(probe)
+    completed_index = 0
+    completed_bytes = probe.files[completed_index].size
+
+    token = bytes(range(16))
+    token_text = token.hex()
+    server_error = []
+    received_indexes = []
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def send_server_json(conn, sequence, payload):
+        key = hashlib.sha256(token).digest()
+        aes = AESGCM(key)
+        raw = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        framed = struct.pack(">Q", sequence) + raw
+        nonce = os.urandom(12)
+        combined = nonce + aes.encrypt(nonce, framed, None)
+        conn.sendall(struct.pack(">I", len(combined)) + combined)
+
+    def recv_frame(conn, expected_sequence):
+        length = struct.unpack(">I", module.recv_exact(conn, 4))[0]
+        combined = module.recv_exact(conn, length)
+        sequence, payload = open_frame(token, combined)
+        assert sequence == expected_sequence, (sequence, expected_sequence)
+        return payload
+
+    def fake_iphone():
+        try:
+            conn, _ = listener.accept()
+            with conn:
+                assert module.recv_exact(conn, len(module.MAGIC)) == module.MAGIC
+
+                client_sequence = 0
+                collection_payload = recv_frame(conn, client_sequence)
+                client_sequence += 1
+                metadata = json.loads(collection_payload.decode("utf-8"))
+                assert metadata["version"] == 4
+                assert metadata["transferID"] == transfer_id
+                assert metadata["manifestHash"] == manifest_hash
+
+                send_server_json(
+                    conn,
+                    0,
+                    {
+                        "version": 4,
+                        "type": "resume",
+                        "transferID": transfer_id,
+                        "manifestHash": manifest_hash,
+                        "alreadyCommitted": False,
+                        "completedIndexes": [completed_index],
+                        "completedBytes": completed_bytes,
+                    },
+                )
+
+                remaining = len(probe.files) - 1
+                for _ in range(remaining):
+                    file_payload = recv_frame(conn, client_sequence)
+                    client_sequence += 1
+                    file_meta = json.loads(file_payload.decode("utf-8"))
+                    index = int(file_meta["index"])
+                    assert index != completed_index
+                    received_indexes.append(index)
+                    expected_size = int(file_meta["size"])
+
+                    received = 0
+                    while received < expected_size:
+                        chunk = recv_frame(conn, client_sequence)
+                        client_sequence += 1
+                        received += len(chunk)
+                    assert received == expected_size
+
+                send_server_json(
+                    conn,
+                    1,
+                    {
+                        "version": 4,
+                        "type": "committed",
+                        "transferID": transfer_id,
+                        "folderName": "Resume.sec",
+                        "fileCount": len(probe.files),
+                        "totalSize": sum(item.size for item in probe.files),
+                    },
+                )
+        except BaseException as exc:
+            server_error.append(exc)
+        finally:
+            listener.close()
+
+    thread = threading.Thread(target=fake_iphone, daemon=True)
+    thread.start()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SENDER),
+            str(direct),
+            "--host", "127.0.0.1",
+            "--port", str(port),
+            "--token", token_text,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+    )
+    thread.join(timeout=5)
+
+    if server_error:
+        raise server_error[0]
+
+    assert result.returncode == 0, result.stdout
+    assert completed_index not in received_indexes
+    assert sorted(received_indexes) == [
+        i for i in range(len(probe.files)) if i != completed_index
+    ]
+    assert "TRANSFERENCIA CONFIRMADA POR NIKAIDO VAULT" in result.stdout
+
+print("NIKAIDO BRIDGE E2E RESUME/ACK: OK")
+
+# Idempotency loopback: if the iPhone committed the index but the previous final
+# ACK never reached Windows, retrying the identical source must succeed without
+# sending the collection a second time.
+with tempfile.TemporaryDirectory(prefix="nikaido-link-committed-") as td:
+    root = Path(td)
+    direct = root / "Committed.sec"
+    direct.mkdir()
+    (direct / "keyCandidate").write_bytes(b"K" * 36)
+    (direct / "fileOne").write_bytes(b"A" * 64)
+
+    probe = module.find_sec_folder(direct)
+    module.validate_collection(probe)
+    transfer_id, manifest_hash = module.build_transfer_manifest(probe)
+
+    token = bytes(reversed(range(16)))
+    token_text = token.hex()
+    server_error = []
+    extra_client_bytes = []
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def send_server_json_committed(conn, sequence, payload):
+        key = hashlib.sha256(token).digest()
+        aes = AESGCM(key)
+        raw = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        framed = struct.pack(">Q", sequence) + raw
+        nonce = os.urandom(12)
+        combined = nonce + aes.encrypt(nonce, framed, None)
+        conn.sendall(struct.pack(">I", len(combined)) + combined)
+
+    def fake_committed_iphone():
+        try:
+            conn, _ = listener.accept()
+            with conn:
+                conn.settimeout(1)
+                assert module.recv_exact(conn, len(module.MAGIC)) == module.MAGIC
+
+                length = struct.unpack(">I", module.recv_exact(conn, 4))[0]
+                combined = module.recv_exact(conn, length)
+                sequence, payload = open_frame(token, combined)
+                assert sequence == 0
+                metadata = json.loads(payload.decode("utf-8"))
+                assert metadata["transferID"] == transfer_id
+                assert metadata["manifestHash"] == manifest_hash
+
+                send_server_json_committed(
+                    conn,
+                    0,
+                    {
+                        "version": 4,
+                        "type": "resume",
+                        "transferID": transfer_id,
+                        "manifestHash": manifest_hash,
+                        "alreadyCommitted": True,
+                        "completedIndexes": [],
+                        "completedBytes": sum(
+                            item.size for item in probe.files
+                        ),
+                    },
+                )
+
+                # Sender should return immediately after the response. Any
+                # additional file metadata/data would be a duplicate transfer.
+                try:
+                    extra = conn.recv(1)
+                    if extra:
+                        extra_client_bytes.append(extra)
+                except socket.timeout:
+                    pass
+        except BaseException as exc:
+            server_error.append(exc)
+        finally:
+            listener.close()
+
+    thread = threading.Thread(target=fake_committed_iphone, daemon=True)
+    thread.start()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SENDER),
+            str(direct),
+            "--host", "127.0.0.1",
+            "--port", str(port),
+            "--token", token_text,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+    )
+    thread.join(timeout=5)
+
+    if server_error:
+        raise server_error[0]
+
+    assert result.returncode == 0, result.stdout
+    assert not extra_client_bytes
+    assert "ya había confirmado esta colección" in result.stdout
+
+print("NIKAIDO BRIDGE IDEMPOTENT RETRY: OK")
+
+# Defensive resume validation: even an authenticated peer response must not be
+# trusted if completedBytes disagrees with completedIndexes. This prevents the
+# progress baseline from masking protocol/state corruption.
+with tempfile.TemporaryDirectory(prefix="nikaido-link-bad-resume-") as td:
+    root = Path(td)
+    direct = root / "BadResume.sec"
+    direct.mkdir()
+    (direct / "keyCandidate").write_bytes(b"K" * 36)
+    (direct / "fileOne").write_bytes(b"A" * 64)
+
+    probe = module.find_sec_folder(direct)
+    module.validate_collection(probe)
+    transfer_id, manifest_hash = module.build_transfer_manifest(probe)
+
+    token = bytes(range(16, 32))
+    token_text = token.hex()
+    server_error = []
+
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def fake_bad_resume_iphone():
+        try:
+            conn, _ = listener.accept()
+            with conn:
+                assert module.recv_exact(conn, len(module.MAGIC)) == module.MAGIC
+
+                length = struct.unpack(">I", module.recv_exact(conn, 4))[0]
+                combined = module.recv_exact(conn, length)
+                sequence, payload = open_frame(token, combined)
+                assert sequence == 0
+                metadata = json.loads(payload.decode("utf-8"))
+                assert metadata["transferID"] == transfer_id
+
+                # Claim one completed index but the wrong byte total.
+                key = hashlib.sha256(token).digest()
+                aes = AESGCM(key)
+                raw = json.dumps(
+                    {
+                        "version": 4,
+                        "type": "resume",
+                        "transferID": transfer_id,
+                        "manifestHash": manifest_hash,
+                        "alreadyCommitted": False,
+                        "completedIndexes": [0],
+                        "completedBytes": 999999,
+                    },
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                framed = struct.pack(">Q", 0) + raw
+                nonce = os.urandom(12)
+                encrypted = nonce + aes.encrypt(nonce, framed, None)
+                conn.sendall(struct.pack(">I", len(encrypted)) + encrypted)
+        except BaseException as exc:
+            server_error.append(exc)
+        finally:
+            listener.close()
+
+    thread = threading.Thread(target=fake_bad_resume_iphone, daemon=True)
+    thread.start()
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SENDER),
+            str(direct),
+            "--host", "127.0.0.1",
+            "--port", str(port),
+            "--token", token_text,
+        ],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=30,
+    )
+    thread.join(timeout=5)
+
+    if server_error:
+        raise server_error[0]
+
+    assert result.returncode == 1, result.stdout
+    assert "no coinciden" in result.stdout
+
+print("NIKAIDO BRIDGE RESUME CONSISTENCY: OK")
 
 print("PC SENDER SELFTEST: OK")

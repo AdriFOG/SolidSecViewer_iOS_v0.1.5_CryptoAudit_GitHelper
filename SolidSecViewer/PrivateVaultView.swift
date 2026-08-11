@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import AVKit
 
 struct PrivateVaultView: View {
     @EnvironmentObject private var vault: PrivateVaultSession
@@ -18,6 +19,26 @@ struct PrivateVaultView: View {
     @State private var selectedSecZip: PrivateVaultEntry?
     @State private var selectedSecFolder: PrivateVaultEntry?
     @State private var entryToDelete: PrivateVaultEntry?
+    @State private var entryToRename: PrivateVaultEntry?
+    @State private var entryToMove: PrivateVaultEntry?
+    @State private var renameText = ""
+    @State private var showDiagnostics = false
+    @State private var showDiscardPendingConfirmation = false
+    @State private var vaultSearch = ""
+    @State private var exportURL: URL?
+    @State private var showExporter = false
+    @State private var isPreparingExport = false
+    @State private var exportError: String?
+
+    private var visibleChildren: [PrivateVaultEntry] {
+        let children = vault.children(of: currentFolderID)
+
+        guard !vaultSearch.isEmpty else { return children }
+
+        return children.filter { entry in
+            entry.name.localizedCaseInsensitiveContains(vaultSearch)
+        }
+    }
 
     var body: some View {
         Group {
@@ -57,6 +78,24 @@ struct PrivateVaultView: View {
                 folder: folder
             )
         }
+        .sheet(isPresented: $showDiagnostics) {
+            NikaidoVaultDiagnosticsView()
+                .environmentObject(vault)
+        }
+        .sheet(item: $entryToMove) { entry in
+            NikaidoMoveDestinationView(entry: entry)
+                .environmentObject(vault)
+        }
+        .sheet(isPresented: $showExporter, onDismiss: {
+            vault.releaseTemporaryPlaintext(exportURL)
+            exportURL = nil
+        }) {
+            if let exportURL {
+                NikaidoVaultExportPicker(url: exportURL) {
+                    showExporter = false
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.didEnterBackgroundNotification
         )) { _ in
@@ -67,8 +106,24 @@ struct PrivateVaultView: View {
             confirmPassword = ""
             newFolderName = ""
             showImporter = false
-            showLANReceiver = false
             showNewFolder = false
+
+            // If a plaintext export temp exists, release it before clearing the
+            // URL. This also covers the short Nikaido Link background-grace
+            // path where the vault itself may intentionally remain unlocked.
+            vault.releaseTemporaryPlaintext(exportURL)
+            showExporter = false
+            exportURL = nil
+            isPreparingExport = false
+
+            if !LANTransferActivity.shared.isActive {
+                showLANReceiver = false
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .nikaidoLinkGraceExpired
+        )) { _ in
+            showLANReceiver = false
         }
         .alert("Nueva carpeta", isPresented: $showNewFolder) {
             TextField("Nombre", text: $newFolderName)
@@ -84,6 +139,55 @@ struct PrivateVaultView: View {
                 )
                 newFolderName = ""
             }
+        }
+        .alert(
+            "Renombrar",
+            isPresented: Binding(
+                get: { entryToRename != nil },
+                set: { if !$0 { entryToRename = nil } }
+            ),
+            presenting: entryToRename
+        ) { entry in
+            TextField("Nombre", text: $renameText)
+
+            Button("Cancelar", role: .cancel) {
+                renameText = ""
+                entryToRename = nil
+            }
+
+            Button("Guardar") {
+                vault.rename(entry, to: renameText)
+                renameText = ""
+                entryToRename = nil
+            }
+        }
+        .alert(
+            "Eliminar transferencias pendientes",
+            isPresented: $showDiscardPendingConfirmation
+        ) {
+            Button("Cancelar", role: .cancel) {}
+
+            Button("Eliminar pendientes", role: .destructive) {
+                vault.discardAllPendingTransfers()
+            }
+        } message: {
+            Text(
+                "Se borrará únicamente el progreso incompleto de Nikaido Link. "
+                + "Las colecciones ya guardadas no se tocarán."
+            )
+        }
+        .alert(
+            "No se pudo exportar",
+            isPresented: Binding(
+                get: { exportError != nil },
+                set: { if !$0 { exportError = nil } }
+            )
+        ) {
+            Button("Entendido", role: .cancel) {
+                exportError = nil
+            }
+        } message: {
+            Text(exportError ?? "Error desconocido")
         }
         .alert(
             "Eliminar",
@@ -129,7 +233,7 @@ struct PrivateVaultView: View {
                 .font(.system(size: 62))
                 .foregroundStyle(.secondary)
 
-            Text(vault.hasVault ? "Mi bóveda privada" : "Crear bóveda privada")
+            Text(vault.hasVault ? "Nikaido Vault" : "Crear Nikaido Vault")
                 .font(.title2.bold())
 
             Text(
@@ -156,7 +260,7 @@ struct PrivateVaultView: View {
                     .padding(.horizontal, 28)
             }
 
-            Button(vault.hasVault ? "Desbloquear" : "Crear bóveda") {
+            Button(vault.hasVault ? "Desbloquear" : "Crear Nikaido Vault") {
                 Task {
                     if vault.hasVault {
                         await vault.unlock(password: password)
@@ -212,7 +316,7 @@ struct PrivateVaultView: View {
             browserHeader
             Divider()
 
-            if vault.children(of: currentFolderID).isEmpty {
+            if visibleChildren.isEmpty {
                 VStack(spacing: 16) {
                     Spacer()
 
@@ -220,10 +324,14 @@ struct PrivateVaultView: View {
                         .font(.system(size: 52))
                         .foregroundStyle(.secondary)
 
-                    Text("Carpeta vacía")
+                    Text(vaultSearch.isEmpty ? "Carpeta vacía" : "Sin resultados")
                         .font(.headline)
 
-                    Text("Importa archivos o crea una carpeta.")
+                    Text(
+                        vaultSearch.isEmpty
+                        ? "Importa archivos o crea una carpeta."
+                        : "No hay elementos que coincidan con la búsqueda."
+                    )
                         .font(.footnote)
                         .foregroundStyle(.secondary)
 
@@ -237,7 +345,7 @@ struct PrivateVaultView: View {
                         ],
                         spacing: 10
                     ) {
-                        ForEach(vault.children(of: currentFolderID)) { entry in
+                        ForEach(visibleChildren) { entry in
                             entryCard(entry)
                         }
                     }
@@ -245,9 +353,13 @@ struct PrivateVaultView: View {
                 }
             }
 
-            if vault.isBusy {
-                ProgressView("Cifrando…")
-                    .padding()
+            if vault.isBusy || isPreparingExport {
+                ProgressView(
+                    isPreparingExport
+                    ? "Preparando exportación cifrada…"
+                    : "Cifrando…"
+                )
+                .padding()
             }
 
             if let error = vault.errorMessage {
@@ -258,12 +370,18 @@ struct PrivateVaultView: View {
                     .padding(.bottom, 6)
             }
         }
+        .searchable(
+            text: $vaultSearch,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Buscar en Nikaido Vault"
+        )
     }
 
     private var browserHeader: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 Button {
+                    vaultSearch = ""
                     if currentFolderID == nil {
                         vault.lock()
                         onHome()
@@ -284,7 +402,7 @@ struct PrivateVaultView: View {
                         .font(.headline)
                         .lineLimit(1)
 
-                    Text("\(vault.children(of: currentFolderID).count) elementos")
+                    Text("\(visibleChildren.count) elementos")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -313,6 +431,32 @@ struct PrivateVaultView: View {
                 }
                 .buttonStyle(.borderedProminent)
 
+                Menu {
+                    Button {
+                        vault.refreshOperationalStatus()
+                        showDiagnostics = true
+                    } label: {
+                        Label(
+                            "Diagnóstico de Nikaido Vault",
+                            systemImage: "stethoscope"
+                        )
+                    }
+
+                    if vault.pendingTransferCount > 0 {
+                        Button(role: .destructive) {
+                            showDiscardPendingConfirmation = true
+                        } label: {
+                            Label(
+                                "Eliminar transferencias pendientes",
+                                systemImage: "clock.badge.xmark"
+                            )
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .buttonStyle(.bordered)
+
                 Button {
                     vault.lock()
                     currentFolderID = nil
@@ -326,6 +470,16 @@ struct PrivateVaultView: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            if vault.pendingTransferCount > 0 {
+                Text(
+                    "\(vault.pendingTransferCount) transferencia(s) de "
+                    + "Nikaido Link pueden reanudarse."
+                )
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(10)
     }
@@ -333,13 +487,12 @@ struct PrivateVaultView: View {
     @ViewBuilder
     private func entryCard(_ entry: PrivateVaultEntry) -> some View {
         Button {
-            if entry.kind == .folder &&
-                entry.name.lowercased().hasSuffix(".sec")
-            {
+            if entry.isSecCollectionFolder {
                 selectedSecFolder = entry
             } else if entry.kind == .folder {
+                vaultSearch = ""
                 currentFolderID = entry.id
-            } else if entry.isImage {
+            } else if entry.isImage || entry.isVideo {
                 selectedEntry = entry
             } else if entry.fileExtension == "zip" {
                 selectedSecZip = entry
@@ -378,9 +531,7 @@ struct PrivateVaultView: View {
         }
         .buttonStyle(.plain)
         .contextMenu {
-            if entry.kind == .folder &&
-                entry.name.lowercased().hasSuffix(".sec")
-            {
+            if entry.isSecCollectionFolder {
                 Button {
                     selectedSecFolder = entry
                 } label: {
@@ -399,6 +550,35 @@ struct PrivateVaultView: View {
                 }
             }
 
+            if entry.kind == .file {
+                Button {
+                    Task {
+                        await prepareExport(entry)
+                    }
+                } label: {
+                    Label(
+                        "Exportar copia descifrada…",
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+            }
+
+            Button {
+                renameText = entry.name
+                entryToRename = entry
+            } label: {
+                Label("Renombrar", systemImage: "pencil")
+            }
+
+            Button {
+                entryToMove = entry
+            } label: {
+                Label(
+                    "Mover…",
+                    systemImage: "folder.badge.plus"
+                )
+            }
+
             Button(role: .destructive) {
                 entryToDelete = entry
             } label: {
@@ -407,10 +587,33 @@ struct PrivateVaultView: View {
         }
     }
 
+    @MainActor
+    private func prepareExport(_ entry: PrivateVaultEntry) async {
+        guard !isPreparingExport else { return }
+
+        isPreparingExport = true
+        exportError = nil
+
+        do {
+            let url = try await vault.makeTemporaryDecryptedCopy(of: entry)
+
+            guard vault.isUnlocked, !Task.isCancelled else {
+                vault.releaseTemporaryPlaintext(url)
+                isPreparingExport = false
+                return
+            }
+
+            exportURL = url
+            showExporter = true
+        } catch {
+            exportError = error.localizedDescription
+        }
+
+        isPreparingExport = false
+    }
+
     private func icon(for entry: PrivateVaultEntry) -> String {
-        if entry.kind == .folder &&
-            entry.name.lowercased().hasSuffix(".sec")
-        {
+        if entry.isSecCollectionFolder {
             return "lock.square.stack.fill"
         }
 
@@ -435,6 +638,238 @@ struct PrivateVaultView: View {
             return "waveform"
         default:
             return "doc.fill"
+        }
+    }
+}
+
+
+struct NikaidoMoveDestinationView: View {
+    @EnvironmentObject private var vault: PrivateVaultSession
+    @Environment(\.dismiss) private var dismiss
+
+    let entry: PrivateVaultEntry
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section("Destino") {
+                    Button {
+                        vault.move(entry, to: nil)
+                        dismiss()
+                    } label: {
+                        Label(
+                            "Raíz de Nikaido Vault",
+                            systemImage: "externaldrive.fill"
+                        )
+                    }
+                    .disabled(entry.parentID == nil)
+
+                    ForEach(vault.moveDestinations(excluding: entry)) { folder in
+                        Button {
+                            vault.move(entry, to: folder.id)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Label(
+                                    folder.name,
+                                    systemImage: folder.isSecCollectionFolder
+                                    ? "lock.square.stack.fill"
+                                    : "folder.fill"
+                                )
+
+                                Spacer()
+
+                                if entry.parentID == folder.id {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .disabled(entry.parentID == folder.id)
+                    }
+                }
+
+                Section {
+                    Text(
+                        "Mover solo actualiza el índice cifrado. Los blobs .ssvb "
+                        + "no se recifran ni se copian."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Mover \(entry.name)")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancelar") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct NikaidoVaultDiagnosticsView: View {
+    @EnvironmentObject private var vault: PrivateVaultSession
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                if let report = vault.healthReport {
+                    Section("Estado") {
+                        Label(
+                            report.isHealthy
+                            ? "Metadata y blobs principales coherentes"
+                            : "Revisión recomendada",
+                            systemImage: report.isHealthy
+                            ? "checkmark.shield.fill"
+                            : "exclamationmark.triangle.fill"
+                        )
+
+                        LabeledContent(
+                            "Archivos indexados",
+                            value: "\(report.indexedFiles)"
+                        )
+                        LabeledContent(
+                            "Carpetas indexadas",
+                            value: "\(report.indexedFolders)"
+                        )
+                        LabeledContent(
+                            "Blobs faltantes",
+                            value: "\(report.missingBlobs)"
+                        )
+                        LabeledContent(
+                            "Blobs huérfanos",
+                            value: "\(report.orphanBlobs)"
+                        )
+                        LabeledContent(
+                            "Transferencias reanudables",
+                            value: "\(report.pendingTransfers)"
+                        )
+                        LabeledContent(
+                            "Datos cifrados",
+                            value: ByteCountFormatter.string(
+                                fromByteCount: report.encryptedBytes,
+                                countStyle: .file
+                            )
+                        )
+                    }
+
+                    Section("Copias de metadata") {
+                        statusRow(
+                            "vault.json",
+                            present: report.primaryConfigPresent
+                        )
+                        statusRow(
+                            "vault.backup.json",
+                            present: report.backupConfigPresent
+                        )
+                        statusRow(
+                            "index.ssv",
+                            present: report.primaryIndexPresent
+                        )
+                        statusRow(
+                            "index.previous.ssv",
+                            present: report.backupIndexPresent
+                        )
+                    }
+                } else {
+                    ProgressView()
+                }
+
+                Section {
+                    Text(
+                        "El diagnóstico muestra conteos y estado estructural. "
+                        + "No exporta contraseñas ni contenido descifrado."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Nikaido Vault")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cerrar") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Actualizar") {
+                        vault.refreshOperationalStatus()
+                        vault.refreshHealthReport()
+                    }
+                }
+            }
+            .onAppear {
+                vault.refreshOperationalStatus()
+                vault.refreshHealthReport()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func statusRow(
+        _ name: String,
+        present: Bool
+    ) -> some View {
+        HStack {
+            Text(name)
+            Spacer()
+            Image(
+                systemName: present
+                ? "checkmark.circle.fill"
+                : "xmark.circle.fill"
+            )
+            .foregroundStyle(present ? .green : .red)
+        }
+    }
+}
+
+struct NikaidoVaultExportPicker: UIViewControllerRepresentable {
+    let url: URL
+    let onFinish: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onFinish: onFinish)
+    }
+
+    func makeUIViewController(
+        context: Context
+    ) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(
+            forExporting: [url],
+            asCopy: true
+        )
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIDocumentPickerViewController,
+        context: Context
+    ) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onFinish: () -> Void
+
+        init(onFinish: @escaping () -> Void) {
+            self.onFinish = onFinish
+        }
+
+        func documentPicker(
+            _ controller: UIDocumentPickerViewController,
+            didPickDocumentsAt urls: [URL]
+        ) {
+            onFinish()
+        }
+
+        func documentPickerWasCancelled(
+            _ controller: UIDocumentPickerViewController
+        ) {
+            onFinish()
         }
     }
 }
@@ -484,24 +919,57 @@ struct PrivateVaultMediaViewer: View {
     let entry: PrivateVaultEntry
 
     @State private var image: UIImage?
+    @State private var playback: PrivateVaultVideoPlayback?
     @State private var errorText: String?
+    @State private var isPreparingVideo = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
 
-            if let image {
-                ZoomableImage(image: image)
-            } else if let errorText {
-                Text(errorText)
-                    .foregroundStyle(.red)
+            Group {
+                if let image {
+                    ZoomableImage(image: image)
+                } else if let playback {
+                    VideoPlayer(player: playback.player)
+                        .ignoresSafeArea()
+                } else if let errorText {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.yellow)
+
+                        Text(errorText)
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                    }
                     .padding()
-            } else {
-                ProgressView()
-                    .tint(.white)
+                } else if entry.isVideo && isPreparingVideo {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .tint(.white)
+
+                        Text("Preparando video cifrado…")
+                            .foregroundStyle(.white)
+
+                        Text(
+                            "La primera apertura puede verificar el archivo una "
+                            + "sola vez para habilitar acceso por rangos."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                    }
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                }
             }
 
             Button {
+                vault.stopVideoPlayback(playback)
+                playback = nil
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -511,19 +979,47 @@ struct PrivateVaultMediaViewer: View {
             }
             .padding()
         }
-        .task {
+        .task(id: entry.id) {
             do {
-                let data = try await vault.decryptFileDataAsync(entry)
+                if entry.isImage {
+                    let data = try await vault.decryptFileDataAsync(entry)
 
-                guard let decoded = UIImage(data: data) else {
-                    errorText = "iOS no pudo decodificar esta imagen."
+                    guard let decoded = UIImage(data: data) else {
+                        errorText = "iOS no pudo decodificar esta imagen."
+                        return
+                    }
+
+                    image = decoded
                     return
                 }
 
-                image = decoded
+                if entry.isVideo {
+                    isPreparingVideo = true
+                    defer { isPreparingVideo = false }
+
+                    let prepared = try await vault.makeVideoPlayback(
+                        for: entry
+                    )
+                    playback = prepared
+                    prepared.play()
+                    return
+                }
+
+                errorText = "Este tipo de archivo aún no tiene visor."
             } catch {
                 errorText = error.localizedDescription
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .nikaidoVaultDidLock
+        )) { _ in
+            vault.stopVideoPlayback(playback)
+            playback = nil
+            dismiss()
+        }
+        .onDisappear {
+            vault.stopVideoPlayback(playback)
+            playback = nil
         }
     }
 }

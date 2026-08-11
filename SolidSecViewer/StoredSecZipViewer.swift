@@ -23,7 +23,7 @@ struct StoredSecZipViewer: View {
 
     let entry: PrivateVaultEntry
 
-    @StateObject private var solidVault = VaultSession()
+    @StateObject private var secCollectionSession = VaultSession()
 
     @State private var password = ""
     @State private var tempZipURL: URL?
@@ -49,7 +49,7 @@ struct StoredSecZipViewer: View {
                             .multilineTextAlignment(.center)
                     }
                     .padding()
-                } else if solidVault.isUnlocked {
+                } else if secCollectionSession.isUnlocked {
                     gallery
                 } else {
                     unlock
@@ -67,7 +67,7 @@ struct StoredSecZipViewer: View {
         }
         .sheet(item: $selectedItem) { item in
             MediaViewer(item: item)
-                .environmentObject(solidVault)
+                .environmentObject(secCollectionSession)
         }
         .task {
             await prepare()
@@ -108,7 +108,7 @@ struct StoredSecZipViewer: View {
                     .multilineTextAlignment(.center)
             }
 
-            SecureField("Contraseña de Solid Explorer", text: $password)
+            SecureField("Contraseña de formato .sec", text: $password)
                 .textContentType(.password)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -116,17 +116,17 @@ struct StoredSecZipViewer: View {
 
             Button("Desbloquear .sec") {
                 Task {
-                    await solidVault.unlock(password: password)
+                    await secCollectionSession.unlock(password: password)
 
-                    if solidVault.isUnlocked {
+                    if secCollectionSession.isUnlocked {
                         password = ""
                     }
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(password.isEmpty || solidVault.folderURL == nil)
+            .disabled(password.isEmpty || secCollectionSession.folderURL == nil)
 
-            if let error = solidVault.errorMessage {
+            if let error = secCollectionSession.errorMessage {
                 Text(error)
                     .font(.footnote)
                     .foregroundStyle(.red)
@@ -145,13 +145,13 @@ struct StoredSecZipViewer: View {
                 spacing: 6
             ) {
                 ForEach(
-                    solidVault.items.filter { !$0.name.hasPrefix(".") }
+                    secCollectionSession.items.filter { !$0.name.hasPrefix(".") }
                 ) { item in
                     Button {
                         selectedItem = item
                     } label: {
                         VaultThumbnail(item: item)
-                            .environmentObject(solidVault)
+                            .environmentObject(secCollectionSession)
                     }
                     .buttonStyle(.plain)
                 }
@@ -178,7 +178,7 @@ struct StoredSecZipViewer: View {
             let temp = try await privateVault.makeTemporaryDecryptedCopy(of: entry)
 
             guard operationID == operation, !Task.isCancelled else {
-                try? FileManager.default.removeItem(at: temp)
+                privateVault.releaseTemporaryPlaintext(temp)
                 return
             }
 
@@ -187,13 +187,13 @@ struct StoredSecZipViewer: View {
 
             guard operationID == operation, !Task.isCancelled else {
                 try? FileManager.default.removeItem(at: result.extractionRootURL)
-                try? FileManager.default.removeItem(at: temp)
+                privateVault.releaseTemporaryPlaintext(temp)
                 return
             }
 
             extractionRootURL = result.extractionRootURL
             detectedPath = result.detectedPath
-            solidVault.setFolder(result.secFolderURL)
+            secCollectionSession.setFolder(result.secFolderURL)
         } catch {
             if operationID == operation {
                 // A legacy vault ZIP can be many gigabytes. Never keep its
@@ -203,10 +203,10 @@ struct StoredSecZipViewer: View {
                     extractionRootURL = nil
                 }
                 if let temp = tempZipURL {
-                    try? FileManager.default.removeItem(at: temp)
+                    privateVault.releaseTemporaryPlaintext(temp)
                     tempZipURL = nil
                 }
-                solidVault.clearFolder()
+                secCollectionSession.clearFolder()
                 errorText = error.localizedDescription
             }
         }
@@ -256,7 +256,7 @@ struct StoredSecZipViewer: View {
         operationID = UUID()
         isPreparing = false
         selectedItem = nil
-        solidVault.clearFolder()
+        secCollectionSession.clearFolder()
 
         if let root = extractionRootURL {
             try? FileManager.default.removeItem(at: root)
@@ -264,7 +264,7 @@ struct StoredSecZipViewer: View {
         }
 
         if let temp = tempZipURL {
-            try? FileManager.default.removeItem(at: temp)
+            privateVault.releaseTemporaryPlaintext(temp)
             tempZipURL = nil
         }
     }

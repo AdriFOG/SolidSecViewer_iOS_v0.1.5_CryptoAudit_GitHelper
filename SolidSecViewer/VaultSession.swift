@@ -14,6 +14,7 @@ final class VaultSession: ObservableObject {
     private var iv = Data()
     private var didStartSecurityScope = false
     private var generation: UInt64 = 0
+    private var activeVideoPlaybacks: [UUID: SecDirectVideoPlayback] = [:]
 
     func setFolder(_ url: URL) {
         lock()
@@ -83,6 +84,12 @@ final class VaultSession: ObservableObject {
 
     func lock() {
         generation &+= 1
+
+        for playback in activeVideoPlaybacks.values {
+            playback.invalidate()
+        }
+        activeVideoPlaybacks.removeAll(keepingCapacity: false)
+
         items = []
         isUnlocked = false
         isBusy = false
@@ -90,29 +97,54 @@ final class VaultSession: ObservableObject {
         zeroize()
     }
 
+    func makeVideoPlayback(
+        for item: VaultItem
+    ) throws -> SecDirectVideoPlayback {
+        guard isUnlocked, item.isVideo else {
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
+        }
+
+        let playback = try SecDirectVideoPlayback(
+            source: item.encryptedURL,
+            key: key,
+            salt: salt,
+            iv: iv,
+            filename: item.name
+        )
+
+        activeVideoPlaybacks[playback.id] = playback
+        return playback
+    }
+
+    func stopVideoPlayback(_ playback: SecDirectVideoPlayback?) {
+        guard let playback else { return }
+        playback.invalidate()
+        activeVideoPlaybacks.removeValue(forKey: playback.id)
+    }
+
     func decrypt(_ item: VaultItem) throws -> Data {
         guard isUnlocked else {
-            throw SolidCryptoError.badPasswordOrUnsupported
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
         }
 
         let raw = try Data(contentsOf: item.encryptedURL, options: [.mappedIfSafe])
-        guard raw.count >= SolidCrypto.headerSize else {
-            throw SolidCryptoError.badHeader
+        guard raw.count >= SecCollectionCrypto.headerSize else {
+            throw SecCollectionCryptoError.badHeader
         }
 
-        let header = raw.prefix(SolidCrypto.headerSize)
+        let header = raw.prefix(SecCollectionCrypto.headerSize)
         let expected = salt + iv
         guard header.prefix(32) == expected else {
-            throw SolidCryptoError.badHeader
+            throw SecCollectionCryptoError.badHeader
         }
 
-        let ciphertext = raw.dropFirst(SolidCrypto.headerSize)
-        return try SolidCrypto.aesCTR(Data(ciphertext), key: key, iv: iv)
+        let ciphertext = raw.dropFirst(SecCollectionCrypto.headerSize)
+        return try SecCollectionCrypto.aesCTR(Data(ciphertext), key: key, iv: iv)
     }
 
     func decryptAsync(_ item: VaultItem) async throws -> Data {
         guard isUnlocked else {
-            throw SolidCryptoError.badPasswordOrUnsupported
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
         }
 
         let keyCopy = key
@@ -133,7 +165,7 @@ final class VaultSession: ObservableObject {
             isUnlocked,
             generation == operationGeneration
         else {
-            throw SolidCryptoError.badPasswordOrUnsupported
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
         }
 
         return data
@@ -147,17 +179,17 @@ final class VaultSession: ObservableObject {
     ) throws -> Data {
         let raw = try Data(contentsOf: item.encryptedURL, options: [.mappedIfSafe])
 
-        guard raw.count >= SolidCrypto.headerSize else {
-            throw SolidCryptoError.badHeader
+        guard raw.count >= SecCollectionCrypto.headerSize else {
+            throw SecCollectionCryptoError.badHeader
         }
 
         let expected = salt + iv
         guard raw.prefix(32) == expected else {
-            throw SolidCryptoError.badHeader
+            throw SecCollectionCryptoError.badHeader
         }
 
-        let ciphertext = raw.dropFirst(SolidCrypto.headerSize)
-        return try SolidCrypto.aesCTR(Data(ciphertext), key: key, iv: iv)
+        let ciphertext = raw.dropFirst(SecCollectionCrypto.headerSize)
+        return try SecCollectionCrypto.aesCTR(Data(ciphertext), key: key, iv: iv)
     }
 
     private func zeroize() {
@@ -193,7 +225,7 @@ final class VaultSession: ObservableObject {
         for url in urls {
             let values = try url.resourceValues(forKeys: [.isDirectoryKey])
             if values.isDirectory == true {
-                throw SolidCryptoError.nestedFoldersUnsupported
+                throw SecCollectionCryptoError.nestedFoldersUnsupported
             }
         }
 
@@ -204,12 +236,12 @@ final class VaultSession: ObservableObject {
 
         for url in urls {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
-            guard values.isRegularFile == true, values.fileSize == SolidCrypto.headerSize else {
+            guard values.isRegularFile == true, values.fileSize == SecCollectionCrypto.headerSize else {
                 continue
             }
 
             let header = try Data(contentsOf: url)
-            guard header.count == SolidCrypto.headerSize else { continue }
+            guard header.count == SecCollectionCrypto.headerSize else { continue }
 
             let salt = Data(header[0..<16])
             let iv = Data(header[16..<32])
@@ -219,7 +251,7 @@ final class VaultSession: ObservableObject {
             if let cached = derivedKeysByHeader[cryptHeader] {
                 key = cached
             } else {
-                let derived = try SolidCrypto.deriveKey(
+                let derived = try SecCollectionCrypto.deriveKey(
                     password: password,
                     salt: salt
                 )
@@ -228,8 +260,8 @@ final class VaultSession: ObservableObject {
             }
 
             guard
-                let encName = SolidCrypto.decodeBase64URL(url.lastPathComponent),
-                let plainData = try? SolidCrypto.aesCTR(encName, key: key, iv: iv),
+                let encName = SecCollectionCrypto.decodeBase64URL(url.lastPathComponent),
+                let plainData = try? SecCollectionCrypto.aesCTR(encName, key: key, iv: iv),
                 let plainName = String(data: plainData, encoding: .utf8)
             else {
                 continue
@@ -244,7 +276,7 @@ final class VaultSession: ObservableObject {
         }
 
         guard let key = foundKey, let salt = foundSalt, let iv = foundIV else {
-            throw SolidCryptoError.badPasswordOrUnsupported
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
         }
 
         var items: [VaultItem] = []
@@ -253,12 +285,12 @@ final class VaultSession: ObservableObject {
             let values = try url.resourceValues(forKeys: [.isRegularFileKey])
             guard values.isRegularFile == true else { continue }
 
-            guard let encName = SolidCrypto.decodeBase64URL(url.lastPathComponent) else {
+            guard let encName = SecCollectionCrypto.decodeBase64URL(url.lastPathComponent) else {
                 continue
             }
 
             guard
-                let plainData = try? SolidCrypto.aesCTR(encName, key: key, iv: iv),
+                let plainData = try? SecCollectionCrypto.aesCTR(encName, key: key, iv: iv),
                 let plainName = String(data: plainData, encoding: .utf8),
                 plainName != ".key"
             else {

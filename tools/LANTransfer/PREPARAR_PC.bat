@@ -4,11 +4,11 @@ cd /d "%~dp0"
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 
-title SolidSec PC Bridge - Preparacion
+title Nikaido Bridge - Preparacion
 
 echo.
 echo ============================================================
-echo   SolidSec PC Bridge - Preparar esta PC
+echo   Nikaido Bridge - Preparar esta PC
 echo ============================================================
 echo.
 echo Esto crea un entorno Python PRIVADO dentro de esta carpeta.
@@ -157,7 +157,7 @@ echo ============================================================
 echo.
 echo A partir de ahora usa:
 echo.
-echo   ENVIAR_SEC_A_IPHONE.bat
+echo   NIKAIDO_BRIDGE.bat
 echo.
 echo Puedes arrastrar tu ZIP directamente encima del BAT.
 echo.

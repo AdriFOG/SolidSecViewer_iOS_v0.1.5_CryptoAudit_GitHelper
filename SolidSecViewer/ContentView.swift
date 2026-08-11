@@ -3,7 +3,7 @@ import UIKit
 
 private enum AppMode {
     case privateVault
-    case solidSec
+    case secReader
 }
 
 struct ContentView: View {
@@ -43,8 +43,8 @@ struct ContentView: View {
                     }
                     .environmentObject(privateVault)
 
-                case .solidSec:
-                    solidSecScreen
+                case .secReader:
+                    secReaderScreen
 
                 case nil:
                     home
@@ -89,6 +89,15 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(
             for: UIApplication.didEnterBackgroundNotification
+        )) { _ in
+            PrivacyShield.show()
+
+            if !LANTransferActivity.shared.isActive {
+                lockForPrivacy()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: .nikaidoLinkGraceExpired
         )) { _ in
             PrivacyShield.show()
             lockForPrivacy()
@@ -146,13 +155,21 @@ struct ContentView: View {
         } message: {
             Text(
                 "iOS avisa a la app después de hacer una captura. "
-                + "SolidSec bloqueó las bóvedas inmediatamente, pero no puede "
+                + "Nikaido Explorer bloqueó las bóvedas inmediatamente, pero no puede "
                 + "borrar una captura que el sistema ya guardó."
             )
         }
     }
 
     private func lockForPrivacy() {
+        // A real privacy lock must also terminate LAN because the receiver owns
+        // working key material while it encrypts incoming files.
+        NotificationCenter.default.post(
+            name: .nikaidoForceStopLink,
+            object: nil
+        )
+        LANTransferActivity.shared.end()
+
         vault.lock()
         privateVault.lock()
         selectedItem = nil
@@ -226,10 +243,10 @@ struct ContentView: View {
                 .font(.system(size: 68))
                 .foregroundStyle(.secondary)
 
-            Text("SolidSec Viewer")
+            Text("Nikaido Explorer")
                 .font(.largeTitle.bold())
 
-            Text("Lector .sec + bóveda privada")
+            Text("Privacidad, multimedia y Nikaido Vault")
                 .foregroundStyle(.secondary)
 
             Button {
@@ -240,7 +257,7 @@ struct ContentView: View {
                         .font(.title2)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Mi bóveda")
+                        Text("Nikaido Vault")
                             .font(.headline)
 
                         Text("Espacio propio cifrado dentro de la app")
@@ -258,14 +275,14 @@ struct ContentView: View {
             .padding(.horizontal)
 
             Button {
-                mode = .solidSec
+                mode = .secReader
             } label: {
                 HStack {
                     Image(systemName: "folder.badge.gearshape")
                         .font(.title2)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Abrir Solid Explorer .sec")
+                        Text("Abrir colección .sec")
                             .font(.headline)
 
                         Text("Modo compatible de solo lectura")
@@ -293,13 +310,13 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var solidSecScreen: some View {
+    private var secReaderScreen: some View {
         if vault.isUnlocked {
             externalGallery
                 .navigationTitle("Carpeta .sec")
         } else {
             externalUnlock
-                .navigationTitle("Solid .sec")
+                .navigationTitle("Colección .sec")
         }
     }
 
@@ -323,7 +340,7 @@ struct ContentView: View {
                 .font(.system(size: 58))
                 .foregroundStyle(.secondary)
 
-            Text("Abrir Solid Explorer .sec")
+            Text("Abrir colección .sec")
                 .font(.title2.bold())
 
             Text(
@@ -360,9 +377,9 @@ struct ContentView: View {
 
                 if selectedZipSourceURL != nil {
                     Text(
-                        "Para guardar colecciones grandes en Mi bóveda sin duplicar "
-                        + "12–24 GB temporales, usa Mi bóveda → Wi‑Fi → Recibir .sec "
-                        + "desde PC. El modo LAN guarda solo los archivos .sec cifrados."
+                        "Para guardar colecciones grandes en Nikaido Vault sin duplicar "
+                        + "12–24 GB temporales, usa Nikaido Vault → Wi‑Fi → Recibir .sec "
+                        + "desde PC. Nikaido Link guarda solo los archivos .sec cifrados."
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -387,7 +404,7 @@ struct ContentView: View {
             .buttonStyle(.bordered)
 
             Text(
-                "El ZIP puede contener otras carpetas: SolidSec busca automáticamente "
+                "El ZIP puede contener otras carpetas: Nikaido Explorer busca automáticamente "
                 + "la mejor carpeta .sec y extrae únicamente ese subárbol. "
                 + "La selección directa de carpetas se conserva como alternativa."
             )

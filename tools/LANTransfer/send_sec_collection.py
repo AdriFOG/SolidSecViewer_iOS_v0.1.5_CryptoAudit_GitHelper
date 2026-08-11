@@ -19,7 +19,7 @@ except Exception:
     print("Ejecuta: python -m pip install cryptography")
     raise SystemExit(2)
 
-MAGIC = b"SSVLAN03"
+MAGIC = b"NXLINK04"
 CHUNK = 1024 * 1024
 MAX_FILE_COUNT = 200_000
 MAX_TOTAL_SIZE = 100 * 1024 * 1024 * 1024
@@ -32,6 +32,7 @@ class SourceFile:
     name: str
     size: int
     opener: object
+    identity: str
 
 
 @dataclass
@@ -189,7 +190,7 @@ def find_sec_in_zip(path: Path) -> SecCollection:
             "No encontré una carpeta .sec con archivo .key cifrado de 36 bytes."
         )
 
-    # Protocol v3 stores one flat Solid Explorer collection. Never silently
+    # Protocol v3 stores one flat .sec collection. Never silently
     # ignore nested entries: that could make a transfer look successful while
     # omitting data. Reject and ask for a flat .sec until recursive semantics
     # have been reverse-engineered/tested.
@@ -237,6 +238,11 @@ def find_sec_in_zip(path: Path) -> SecCollection:
                 name=PurePosixPath(relative).name,
                 size=info.file_size,
                 opener=lambda info=info: zf.open(info, "r"),
+                identity=(
+                    f"zip:{info.CRC:08x}:"
+                    f"{info.compress_size}:"
+                    f"{info.header_offset}"
+                ),
             )
         )
 
@@ -278,14 +284,20 @@ def find_sec_folder(path: Path) -> SecCollection:
             "No encontré el archivo .key cifrado de 36 bytes."
         )
 
-    files = [
-        SourceFile(
-            name=p.name,
-            size=p.stat().st_size,
-            opener=lambda p=p: p.open("rb", buffering=0),
+    files = []
+    for source_path in files_on_disk:
+        stat = source_path.stat()
+        files.append(
+            SourceFile(
+                name=source_path.name,
+                size=stat.st_size,
+                opener=lambda p=source_path: p.open("rb", buffering=0),
+                identity=(
+                    f"file:{stat.st_size}:"
+                    f"{stat.st_mtime_ns}"
+                ),
+            )
         )
-        for p in files_on_disk
-    ]
 
     name = path.name
 
@@ -355,6 +367,8 @@ def validate_collection(collection: SecCollection) -> None:
     if not any(item.size == 36 for item in collection.files):
         raise ValueError("No encontré el archivo .key cifrado de 36 bytes.")
 
+    collection.files.sort(key=lambda item: item.name.casefold())
+
 def clean_token(text: str) -> bytes:
     value = text.replace("-", "").replace(" ", "").strip()
 
@@ -397,9 +411,105 @@ def send_encrypted_json(sock, sealer: TransportSealer, payload):
     sock.sendall(encrypted)
 
 
-def progress(sent: int, total: int, started: float) -> str:
+
+class TransportOpener:
+    def __init__(self, aes: AESGCM):
+        self.aes = aes
+        self.sequence = 0
+
+    def open(self, combined: bytes) -> bytes:
+        if self.sequence > 0xFFFFFFFFFFFFFFFF:
+            raise OverflowError("Secuencia de servidor agotada.")
+
+        if len(combined) < 28:
+            raise ValueError("Frame de Nikaido Link demasiado pequeño.")
+
+        nonce = combined[:12]
+        framed = self.aes.decrypt(nonce, combined[12:], None)
+
+        if len(framed) < 8:
+            raise ValueError("Frame de Nikaido Link inválido.")
+
+        sequence = struct.unpack(">Q", framed[:8])[0]
+
+        if sequence != self.sequence:
+            raise ValueError(
+                "Secuencia de respuesta de Nikaido Link inválida."
+            )
+
+        self.sequence += 1
+        return framed[8:]
+
+
+def recv_exact(sock: socket.socket, count: int) -> bytes:
+    chunks = []
+    remaining = count
+
+    while remaining:
+        chunk = sock.recv(remaining)
+
+        if not chunk:
+            raise ConnectionError(
+                "El iPhone cerró la conexión antes de responder."
+            )
+
+        chunks.append(chunk)
+        remaining -= len(chunk)
+
+    return b"".join(chunks)
+
+
+def recv_encrypted_json(sock, opener: TransportOpener):
+    length = struct.unpack(">I", recv_exact(sock, 4))[0]
+
+    if length < 28 or length > 16 * 1024 * 1024:
+        raise ValueError("Respuesta de Nikaido Link con tamaño inválido.")
+
+    encrypted = recv_exact(sock, length)
+    raw = opener.open(encrypted)
+    return json.loads(raw.decode("utf-8"))
+
+
+def build_transfer_manifest(collection: SecCollection):
+    files = [
+        {
+            "index": index,
+            "name": item.name,
+            "size": item.size,
+            "identity": item.identity,
+        }
+        for index, item in enumerate(collection.files)
+    ]
+
+    canonical = json.dumps(
+        {
+            "folderName": collection.name,
+            "files": files,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+    manifest_hash = hashlib.sha256(canonical).hexdigest()
+    transfer_id = hashlib.sha256(
+        b"NikaidoLink-v4\x00"
+        + bytes.fromhex(manifest_hash)
+        + collection.name.encode("utf-8")
+    ).hexdigest()
+
+    return transfer_id, manifest_hash
+
+
+def progress(
+    sent: int,
+    total: int,
+    started: float,
+    baseline: int = 0,
+) -> str:
     elapsed = max(0.001, time.monotonic() - started)
-    speed = sent / elapsed
+    session_bytes = max(0, sent - baseline)
+    speed = session_bytes / elapsed
     percent = (sent / total * 100.0) if total else 0.0
     remaining = max(0, total - sent) / speed if speed > 0 else 0
 
@@ -415,7 +525,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Extrae por streaming solo los archivos cifrados .sec "
-            "y los envía directamente a Mi bóveda."
+            "y los envía directamente a Nikaido Vault."
         )
     )
     parser.add_argument("source", help="ZIP o carpeta .sec")
@@ -436,13 +546,15 @@ def main() -> int:
 
     try:
         total_size = sum(item.size for item in collection.files)
+        transfer_id, manifest_hash = build_transfer_manifest(collection)
 
         transport_key = hashlib.sha256(secret).digest()
         aes = AESGCM(transport_key)
         sealer = TransportSealer(aes)
+        opener = TransportOpener(aes)
 
         print()
-        print("SolidSec LAN Transfer v3")
+        print("Nikaido Bridge / Link v4")
         print("========================")
         print(f"Colección : {collection.name}")
         print(f"Archivos  : {len(collection.files):,}")
@@ -456,6 +568,7 @@ def main() -> int:
 
         started = time.monotonic()
         sent = 0
+        resume_baseline = 0
         last_update = 0.0
 
         with socket.create_connection(
@@ -475,18 +588,92 @@ def main() -> int:
                 sock,
                 sealer,
                 {
-                    "version": 3,
+                    "version": 4,
+                    "transferID": transfer_id,
+                    "manifestHash": manifest_hash,
                     "folderName": collection.name,
                     "fileCount": len(collection.files),
                     "totalSize": total_size,
                 },
             )
 
-            for index, item in enumerate(collection.files, start=1):
+            resume = recv_encrypted_json(sock, opener)
+
+            if (
+                resume.get("version") != 4
+                or resume.get("type") != "resume"
+                or resume.get("transferID", "").lower() != transfer_id
+                or resume.get("manifestHash", "").lower() != manifest_hash
+            ):
+                raise ValueError(
+                    "Respuesta de reanudación de Nikaido Link inválida."
+                )
+
+            if resume.get("alreadyCommitted") is True:
+                committed_bytes = int(resume.get("completedBytes", -1))
+                if committed_bytes != total_size:
+                    raise ValueError(
+                        "Nikaido Vault marcó la colección como confirmada con "
+                        "un tamaño distinto al origen."
+                    )
+
+                print()
+                print(
+                    "[OK] Nikaido Vault ya había confirmado esta colección. "
+                    "No se reenviará."
+                )
+                return 0
+
+            completed_indexes = {
+                int(value)
+                for value in resume.get("completedIndexes", [])
+            }
+
+            if any(
+                index < 0 or index >= len(collection.files)
+                for index in completed_indexes
+            ):
+                raise ValueError(
+                    "El iPhone devolvió índices de reanudación inválidos."
+                )
+
+            sent = int(resume.get("completedBytes", 0))
+
+            expected_completed_bytes = sum(
+                collection.files[index].size
+                for index in completed_indexes
+            )
+
+            if sent != expected_completed_bytes:
+                raise ValueError(
+                    "El iPhone devolvió bytes de reanudación que no coinciden "
+                    "con los archivos confirmados."
+                )
+
+            resume_baseline = sent
+            started = time.monotonic()
+
+            if sent < 0 or sent > total_size:
+                raise ValueError(
+                    "El iPhone devolvió un progreso de reanudación inválido."
+                )
+
+            if completed_indexes:
+                print(
+                    f"[RESUME] {len(completed_indexes):,} archivos ya estaban "
+                    f"confirmados ({sent / (1024**3):.2f} GiB)."
+                )
+
+            for zero_index, item in enumerate(collection.files):
+                if zero_index in completed_indexes:
+                    continue
+
+                index = zero_index + 1
                 send_encrypted_json(
                     sock,
                     sealer,
                     {
+                        "index": zero_index,
                         "filename": item.name,
                         "size": item.size,
                     },
@@ -527,6 +714,7 @@ def main() -> int:
                                     sent,
                                     total_size,
                                     started,
+                                    resume_baseline,
                                 ),
                                 end="",
                                 flush=True,
@@ -538,11 +726,25 @@ def main() -> int:
                         f"Tamaño incorrecto al leer {item.name}."
                     )
 
+            print("\n[INFO] Esperando commit cifrado de Nikaido Vault...")
+            sock.settimeout(600)
+            ack = recv_encrypted_json(sock, opener)
+
+            if (
+                ack.get("version") != 4
+                or ack.get("type") != "committed"
+                or ack.get("transferID", "").lower() != transfer_id
+                or int(ack.get("fileCount", -1)) != len(collection.files)
+                or int(ack.get("totalSize", -1)) != total_size
+            ):
+                raise ValueError(
+                    "La confirmación final de Nikaido Vault es inválida."
+                )
+
         print("\n")
-        print("[OK] Colección .sec enviada.")
+        print("[OK] TRANSFERENCIA CONFIRMADA POR NIKAIDO VAULT.")
         print(
-            "Espera a que el iPhone confirme "
-            "'Colección .sec guardada'."
+            "El índice cifrado fue guardado y la colección ya es persistente."
         )
         return 0
 

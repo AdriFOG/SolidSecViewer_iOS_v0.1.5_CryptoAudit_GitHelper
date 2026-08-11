@@ -1,157 +1,184 @@
-SOLIDSEC VIEWER iOS v0.6.2 — AUDITED HARDENING
-================================================
+NIKAIDO EXPLORER iOS v0.8.0 — RELIABILITY PREVIEW
+==================================================
 
-QUÉ ES
-------
-SolidSec Viewer es un proyecto privado para iPhone con dos funciones principales:
+IDENTIDAD
+---------
+Producto visible:      Nikaido Explorer
+Bóveda cifrada:        Nikaido Vault
+Transferencia local:   Nikaido Link
+Compañero de Windows:  Nikaido Bridge
 
-1. Abrir en solo lectura colecciones cifradas `.sec` de Solid Explorer.
-2. Mantener Mi bóveda, un almacenamiento propio cifrado y autenticado.
+Nikaido Explorer nació a partir del lector compatible con colecciones `.sec`, pero
+la app ya no se presenta como una extensión de otro gestor. `.sec` se trata solo
+como un formato de importación/compatibilidad.
 
-Para colecciones grandes la ruta recomendada es PC -> LAN -> Mi bóveda. El ZIP se
-analiza en la PC y NO se copia completo al iPhone.
+COMPATIBILIDAD CON LA BÓVEDA YA EXISTENTE
+-----------------------------------------
+Esta build está diseñada para abrir la misma Nikaido Vault creada por versiones
+anteriores SIN volver a importar ni recifrar sus blobs.
 
-ESTADO
-------
-Esta build pasó una auditoría estática/estructural amplia y self-tests posibles en
-este entorno. Se corrigieron bugs de transacciones, recuperación de metadata,
-imports, lifecycle, LAN, selección `.sec`, memoria, ZIP legacy y CI.
+Por compatibilidad se conservan intencionalmente tres identificadores técnicos
+heredados que NO son branding visible:
 
-IMPORTANTE: aquí no hay Xcode/iPhoneOS SDK. GitHub Actions es la prueba autoritativa
-de compilación de la IPA v0.6.2.
+- Bundle ID: `com.teamnikaido.solidsecviewer`
+- carpeta Application Support: `SolidSecPrivateVault`
+- verifier criptográfico persistente: `SolidSecPrivateVault-v1`
 
-SOLID EXPLORER `.sec`
+Cambiar cualquiera de ellos ahora podría separar el data container o hacer que una
+bóveda existente parezca tener una contraseña incorrecta.
+
+El formato principal de configuración permanece en versión 1. Los campos nuevos
+del índice cifrado son opcionales y los índices viejos siguen decodificando.
+
+NIKAIDO VAULT
+-------------
+- PBKDF2-HMAC-SHA256, 310001 iteraciones.
+- AES-256-GCM.
+- Índice/nombres cifrados.
+- Blobs UUID `.ssvb`.
+- Chunks autenticados de 1 MiB.
+- Tamaño esperado + SHA-256 completo por archivo cuando está disponible.
+- Manifest opcional por frame para acceso aleatorio autenticado de video.
+- `vault.backup.json` + `index.previous.ssv`.
+- `NSFileProtectionComplete` en iOS, best effort.
+- exclusión de backup, best effort.
+- contraseña no persistida.
+- lock con limpieza best-effort de claves en memoria.
+- diagnósticos estructurales sin exportar contenido descifrado.
+
+OPERACIONES DE BÓVEDA
+---------------------
+- crear carpetas;
+- importar archivos directamente desde URLs security-scoped (`asCopy: false`);
+- exportar explícitamente una copia descifrada mediante el picker de iOS;
+- registrar y limpiar plaintext temporal de exportación en dismiss/lock/relaunch;
+- renombrar sin recifrar blobs;
+- mover entre carpetas sin recifrar blobs;
+- borrar con commit de metadata antes de eliminar blobs;
+- búsqueda/navegación;
+- diagnóstico de blobs faltantes/huérfanos y copias de metadata;
+- limpieza explícita de transferencias pendientes.
+
+Las colecciones `.sec` antiguas conservan automáticamente el sufijo `.sec` al
+renombrarse para que no dejen de abrirse como colección cifrada.
+
+COMPATIBILIDAD `.sec`
 ---------------------
 - PBKDF2-HMAC-SHA256, 100001 iteraciones.
 - AES-256-CTR.
-- Header de 36 bytes.
-- Nombres cifrados Base64URL.
-- Detección del `.key` cifrado.
-- Cache de PBKDF2 por header para evitar derivaciones repetidas innecesarias.
-- Galería, búsqueda, archivos ocultos y thumbnails bajo demanda.
-- Subcarpetas físicas `.sec` se rechazan hasta validar su formato.
+- header de 36 bytes.
+- nombres cifrados Base64URL.
+- detección del archivo especial que descifra a `.key`.
+- cache de derivación por header durante unlock.
+- galería, búsqueda, ocultos y thumbnails bajo demanda.
+- video por rangos desde colecciones `.sec` almacenadas en Nikaido Vault.
 
-Video por rangos sigue pendiente; no se escribe un video plaintext gigantesco como
-atajo.
+Las subcarpetas físicas dentro de una colección `.sec` importada desde PC se
+rechazan por ahora para no omitir contenido cuya semántica todavía no se validó.
 
-MI BÓVEDA
----------
-- PBKDF2-HMAC-SHA256, 310001 iteraciones.
-- AES-256-GCM.
-- Nombres/índice cifrados.
-- Blobs UUID independientes.
-- Chunks autenticados de 1 MiB.
-- Hash SHA-256 de archivo completo en entradas nuevas + tamaño esperado.
-- `NSFileProtectionComplete`.
-- config backup + índice cifrado anterior.
-- metadata ausente/corrupta falla cerrado.
-- límites de tamaño para config/índice y validación de graph/IDs/blob names.
-- contraseña no persistida.
+VIDEO CIFRADO IN-PLACE
+----------------------
+Los videos ya guardados NO se copian ni se convierten a plaintext completo.
 
-La importación regular usa document picker **sin crear una copia plaintext**
-deliberada (`asCopy: false`): se lee el URL security-scoped y se cifra directo.
+Hay tres rutas por rangos:
+- colección `.sec` dentro de Nikaido Vault: AES-GCM exterior + AES-CTR interior;
+- carpeta `.sec` abierta directamente: FileHandle + AES-CTR con offset;
+- video normal de Nikaido Vault: random access autenticado AES-GCM exterior.
 
-PRIVACIDAD
-----------
-- Privacy curtain sobre UIWindow tan pronto la app deja de estar activa.
-- Lock real al entrar al background.
-- Esto permite que el primer prompt de permiso de Red local aparezca sin destruir la
-  sesión LAN, pero sigue ocultando la interfaz mientras el sistema está encima.
-- Detección de screen recording/mirroring y lock.
-- Screenshot: iOS avisa después de la captura; SolidSec bloquea al recibir el aviso,
-  pero no puede borrar retroactivamente la primera imagen ya guardada.
+AVPlayer pide rangos y Nikaido Explorer entrega solo los bytes necesarios mediante
+`AVAssetResourceLoader`.
 
-LAN v3 — RUTA RECOMENDADA PARA 12 GB
-------------------------------------
-iPhone:
-  SolidSec -> Mi bóveda -> desbloquear -> botón Wi-Fi
+En videos importados por builds antiguas, la primera apertura puede hacer una pasada
+completa de ESE video para verificar su SHA-256 original y crear un pequeño manifest
+de frames dentro del índice cifrado. El blob existente no se reescribe. Esa pasada
+es cancelable y se corta al bloquear Nikaido Vault.
 
-PC:
-  tools\LANTransfer\ENVIAR_SEC_A_IPHONE.bat
+El contenedor/códec final sigue dependiendo de lo que AVFoundation pueda reproducir
+en el dispositivo. MP4/MOV/M4V con codecs nativos son la ruta más segura; formatos
+como MKV/WebM/AVI pueden ser reconocidos por la app pero rechazados por AVPlayer.
 
-La PC abre localmente el ZIP/carpeta `.sec` y manda SOLO los archivos `.sec`
-ya cifrados.
+NIKAIDO LINK v4 — RESUME + ACK
+------------------------------
+Ruta recomendada para colecciones grandes:
+
+  Nikaido Explorer -> Nikaido Vault -> Nikaido Link
+
+En Windows:
+
+  tools\LANTransfer\PREPARAR_PC.bat     (solo primera vez)
+  tools\LANTransfer\NIKAIDO_BRIDGE.bat  (transferir)
 
 Protocolo:
-- Magic `SSVLAN03`.
-- TCP / Network.framework, limitado a Wi-Fi en iPhone.
-- secreto aleatorio de 128 bits por sesión;
-- SHA-256 del secreto -> clave de transporte;
+- magic `NXLINK04`;
+- metadata v4;
+- TCP / Network.framework sobre Wi-Fi del iPhone;
+- secreto aleatorio de 128 bits mostrado por el iPhone;
+- SHA-256(secreto) como clave de transporte;
 - AES-GCM por frame;
-- contador de secuencia autenticado de 64 bits: replay/reordenamiento se rechaza;
-- datos por frames de hasta 1 MiB;
-- máximo 100 GB / 200000 archivos;
-- nombres, duplicados, tamaños y espacio libre validados;
-- timeouts de handshake/inactividad;
-- blobs parciales eliminados en cancel/failure;
-- colección visible solo tras file count + byte total + índice correcto.
+- secuencia UInt64 autenticada en ambos sentidos;
+- transferencia de los archivos `.sec` ya cifrados, NO del ZIP completo.
 
-El ZIP original NO se almacena en el iPhone.
+Reliability v0.8:
+- `transferID` y `manifestHash` deterministas para la misma fuente;
+- journal cifrado de transferencia pendiente;
+- resume por archivo completo;
+- un corte borra solo el archivo incompleto actual;
+- archivos ya terminados permanecen cifrados y se saltan al reconectar;
+- preflight de espacio usa solo los bytes restantes + margen;
+- commit final mueve los blobs pendientes al almacén principal y persiste el índice;
+- Windows espera un ACK cifrado `committed` del iPhone;
+- si el ACK final se pierde DESPUÉS del commit, reintentar la misma fuente responde
+  `alreadyCommitted` y no crea una segunda colección.
 
-PC COMPANION
-------------
-Primera vez:
-  tools\LANTransfer\PREPARAR_PC.bat
+Para ZIP comprimido el resume es por archivo `.sec` completo. Si se corta a mitad
+de un archivo individual enorme, solo ese archivo se repite; no toda la colección.
 
-Luego:
-  tools\LANTransfer\ENVIAR_SEC_A_IPHONE.bat
+PRIVACIDAD / LIFECYCLE
+----------------------
+- privacy curtain inmediata al perder visibilidad;
+- grabación/duplicación detectada -> lock;
+- screenshot: iOS notifica después; la app bloquea al recibir el aviso pero no puede
+  borrar retroactivamente la captura ya hecha;
+- durante una transferencia activa existe una gracia corta (~20 s) para transiciones
+  de Notification Center/Control Center/overlays de LiveContainer;
+- un background real/prolongado cancela la sesión y vuelve a bloquear la bóveda;
+- no se promete protección frente a un iPhone completamente comprometido mientras
+  la bóveda está desbloqueada.
 
-El venv es privado del proyecto y no modifica los paquetes de tus otros proyectos.
-
-ZIP LEGACY
+CI / BUILD
 ----------
-Se conserva para archivos ZIP que ya existan dentro de Mi bóveda, pero NO es la ruta
-recomendada para 12 GB. Antes de abrir hace preflight aproximado de `2 x ZIP + 512
-MiB`, y un fallo elimina inmediatamente el ZIP plaintext temporal.
+Target interno conservado: `SolidSecViewer` (técnico/legacy)
+Producto visible: `Nikaido Explorer`
+iOS mínimo: 16.0
+Arquitectura: arm64
+Swift: 5
 
-LIMITACIONES IMPORTANTES
-------------------------
-1. No hay resume LAN todavía.
-2. No hay ACK final PC<-iPhone después del commit. No borres el original hasta ver
-   “Colección .sec guardada” en iPhone.
-3. Video dual-layer random-access sigue pendiente.
-4. Subcarpetas físicas `.sec` se rechazan.
-5. Un índice con una cantidad extrema de entradas puede producir una pausa final al
-   commitearse.
-6. No se promete defensa contra un iPhone completamente comprometido mientras la
-   bóveda está abierta.
+Usa el MISMO repo con:
 
-COMPILAR
---------
-- iOS 16+
-- arm64 / iphoneos
-- Swift 5
-- Bundle ID: com.teamnikaido.solidsecviewer
-
-Usa el MISMO repo:
   ACTUALIZAR_GITHUB.bat
 
-Artifact esperado:
-  SolidSecViewer-LiveContainer-v0.6.2.ipa
+Artifact esperado cuando GitHub Actions quede verde:
 
-PRIMERA PRUEBA
---------------
-1. GitHub Actions.
-2. Instala la nueva IPA.
-3. Prueba `.sec` pequeña/descartable.
-4. LAN -> cerrar app -> reabrir -> desbloquear -> revisar varias fotos.
-5. Prueba cancelación/corte.
-6. Prueba intermedia.
-7. Después la colección real grande.
+  NikaidoExplorer-LiveContainer-v0.8.0.ipa
 
-No necesitas usar material privado para la primera prueba.
-Lee `AUDIT_REPORT.md` y `BUILD_VALIDATION.txt` para detalles.
+NO se afirma que v0.8.0 compile realmente hasta que Xcode/GitHub Actions pase todas
+las puertas. Este paquete sí incluye validaciones estáticas y self-tests para que el
+runner detecte la mayor cantidad posible de regresiones antes de publicar la IPA.
 
+PRUEBA FUTURA RECOMENDADA
+-------------------------
+Cuando vuelvas a tener acceso al iPhone:
 
-CORRECCIÓN v0.6.2 — DIAGNÓSTICO REAL DE GITHUB ACTIONS
-------------------------------------------------------
-La v0.6.0 sí compiló y validó la app arm64 para iPhone. El gate falló solamente
-porque PrivateVaultSelfTest corre como binario macOS y el test intentaba aplicar
-NSFileProtectionComplete a un archivo temporal del runner. macOS devolvió EINVAL.
+1. Compilar v0.8.0 en GitHub Actions.
+2. Actualizar SIN borrar el data container actual.
+3. Confirmar que la Nikaido Vault existente abre.
+4. Abrir varias fotos existentes.
+5. Probar un video MP4 corto y después uno grande.
+6. Transferir una colección pequeña con Nikaido Link.
+7. Cortar Wi-Fi a propósito después de algunos archivos.
+8. Reconectar con la misma fuente y confirmar resume.
+9. Comprobar que Nikaido Bridge solo marca éxito después del ACK final.
+10. Solo después considerar la build release-candidate.
 
-v0.6.2 conserva NSFileProtectionComplete en iPhone, pero omite ese atributo
-iOS-específico en el host macOS del self-test. También elimina los warnings de
-actor-isolation y ZIPFoundation que Xcode 16.4 reportó.
-
-El workflow incorpora un warning guard: cualquier warning proveniente de un
-archivo SolidSecViewer/*.swift bloquea el release.
+Lee `AUDIT_REPORT.md`, `RELEASE_NOTES_v0.8.0.md` y
+`BUILD_VALIDATION_v0.8.0.txt` para el detalle técnico.

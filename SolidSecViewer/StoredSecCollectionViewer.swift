@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Combine
+import AVKit
 
 private actor ThumbnailDecryptGate {
     private var permits: Int
@@ -69,6 +70,7 @@ final class StoredSecCollectionSession: ObservableObject {
     private var operationGeneration: UInt64 = 0
     private let thumbnailCache = NSCache<NSUUID, UIImage>()
     private let thumbnailGate = ThumbnailDecryptGate(limit: 3)
+    private var activeVideoPlaybacks: [UUID: StoredSecVideoPlayback] = [:]
 
     init() {
         thumbnailCache.countLimit = 160
@@ -95,7 +97,7 @@ final class StoredSecCollectionSession: ObservableObject {
             var derivedKeysByHeader: [Data: Data] = [:]
 
             for entry in children where
-                entry.originalSize == Int64(SolidCrypto.headerSize)
+                entry.originalSize == Int64(SecCollectionCrypto.headerSize)
             {
                 let raw = try await privateVault.decryptFileDataAsync(
                     entry,
@@ -106,7 +108,7 @@ final class StoredSecCollectionSession: ObservableObject {
                     throw PrivateVaultError.locked
                 }
 
-                guard raw.count == SolidCrypto.headerSize else {
+                guard raw.count == SecCollectionCrypto.headerSize else {
                     continue
                 }
 
@@ -118,7 +120,7 @@ final class StoredSecCollectionSession: ObservableObject {
                 if let cached = derivedKeysByHeader[cryptHeader] {
                     candidateKey = cached
                 } else {
-                    let derived = try SolidCrypto.deriveKey(
+                    let derived = try SecCollectionCrypto.deriveKey(
                         password: password,
                         salt: candidateSalt
                     )
@@ -127,8 +129,8 @@ final class StoredSecCollectionSession: ObservableObject {
                 }
 
                 guard
-                    let encryptedName = SolidCrypto.decodeBase64URL(entry.name),
-                    let plainNameData = try? SolidCrypto.aesCTR(
+                    let encryptedName = SecCollectionCrypto.decodeBase64URL(entry.name),
+                    let plainNameData = try? SecCollectionCrypto.aesCTR(
                         encryptedName,
                         key: candidateKey,
                         iv: candidateIV
@@ -153,7 +155,7 @@ final class StoredSecCollectionSession: ObservableObject {
                 let foundSalt,
                 let foundIV
             else {
-                throw SolidCryptoError.badPasswordOrUnsupported
+                throw SecCollectionCryptoError.badPasswordOrUnsupported
             }
 
             let decodedItems = try await Task.detached(priority: .userInitiated) {
@@ -196,7 +198,7 @@ final class StoredSecCollectionSession: ObservableObject {
             isUnlocked,
             let privateVault
         else {
-            throw SolidCryptoError.badPasswordOrUnsupported
+            throw SecCollectionCryptoError.badPasswordOrUnsupported
         }
 
         let operation = operationGeneration
@@ -282,8 +284,64 @@ final class StoredSecCollectionSession: ObservableObject {
         return result
     }
 
+
+    func makeVideoPlayback(
+        for item: StoredSecCollectionItem
+    ) async throws -> StoredSecVideoPlayback {
+        guard item.isVideo else {
+            throw StoredSecVideoError.notVideo
+        }
+
+        guard
+            isUnlocked,
+            let privateVault
+        else {
+            throw PrivateVaultError.locked
+        }
+
+        let operation = operationGeneration
+
+        // For an existing v0.6.x video this may perform one full authenticated
+        // verification pass. It updates only encrypted index metadata and never
+        // rewrites the multi-GB blob.
+        let descriptor = try await privateVault.prepareRandomAccess(
+            for: item.sourceEntry
+        )
+
+        guard
+            isUnlocked,
+            operation == operationGeneration
+        else {
+            throw PrivateVaultError.locked
+        }
+
+        let playback = try StoredSecVideoPlayback(
+            descriptor: descriptor,
+            secKey: key,
+            secSalt: salt,
+            secIV: iv,
+            filename: item.name
+        )
+
+        activeVideoPlaybacks[playback.id] = playback
+        return playback
+    }
+
+    func stopVideoPlayback(_ playback: StoredSecVideoPlayback?) {
+        guard let playback else { return }
+
+        playback.invalidate()
+        activeVideoPlaybacks.removeValue(forKey: playback.id)
+    }
+
     func lock() {
         operationGeneration &+= 1
+
+        for playback in activeVideoPlaybacks.values {
+            playback.invalidate()
+        }
+        activeVideoPlaybacks.removeAll(keepingCapacity: false)
+
         items = []
         isUnlocked = false
         errorMessage = nil
@@ -302,8 +360,8 @@ final class StoredSecCollectionSession: ObservableObject {
 
         for entry in children {
             guard
-                let encryptedName = SolidCrypto.decodeBase64URL(entry.name),
-                let plainNameData = try? SolidCrypto.aesCTR(
+                let encryptedName = SecCollectionCrypto.decodeBase64URL(entry.name),
+                let plainNameData = try? SecCollectionCrypto.aesCTR(
                     encryptedName,
                     key: key,
                     iv: iv
@@ -338,17 +396,17 @@ final class StoredSecCollectionSession: ObservableObject {
         salt: Data,
         iv: Data
     ) throws -> Data {
-        guard raw.count >= SolidCrypto.headerSize else {
-            throw SolidCryptoError.badHeader
+        guard raw.count >= SecCollectionCrypto.headerSize else {
+            throw SecCollectionCryptoError.badHeader
         }
 
         let expected = salt + iv
         guard raw.prefix(32) == expected else {
-            throw SolidCryptoError.badHeader
+            throw SecCollectionCryptoError.badHeader
         }
 
-        let ciphertext = raw.dropFirst(SolidCrypto.headerSize)
-        return try SolidCrypto.aesCTR(
+        let ciphertext = raw.dropFirst(SecCollectionCrypto.headerSize)
+        return try SecCollectionCrypto.aesCTR(
             Data(ciphertext),
             key: key,
             iv: iv
@@ -431,6 +489,13 @@ struct StoredSecFolderViewer: View {
             dismiss()
         }
         .onReceive(NotificationCenter.default.publisher(
+            for: .nikaidoVaultDidLock
+        )) { _ in
+            selectedItem = nil
+            session.lock()
+            dismiss()
+        }
+        .onReceive(NotificationCenter.default.publisher(
             for: UIScreen.capturedDidChangeNotification
         )) { notification in
             let captured =
@@ -461,7 +526,7 @@ struct StoredSecFolderViewer: View {
 
             Text(
                 "Los archivos .sec permanecen guardados individualmente "
-                + "dentro de Mi bóveda. Solo se descifra en RAM el archivo "
+                + "dentro de Nikaido Vault. Solo se descifra en RAM el archivo "
                 + "que necesitas abrir."
             )
             .font(.caption)
@@ -469,7 +534,7 @@ struct StoredSecFolderViewer: View {
             .multilineTextAlignment(.center)
             .padding(.horizontal, 28)
 
-            SecureField("Contraseña de Solid Explorer", text: $password)
+            SecureField("Contraseña de formato .sec", text: $password)
                 .textContentType(.password)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -603,42 +668,60 @@ struct StoredSecCollectionMediaViewer: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var image: UIImage?
+    @State private var playback: StoredSecVideoPlayback?
     @State private var errorText: String?
+    @State private var isPreparingVideo = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black.ignoresSafeArea()
 
-            if let image {
-                ZoomableImage(image: image)
-            } else if item.isVideo {
-                VStack(spacing: 12) {
-                    Image(systemName: "film.stack.fill")
-                        .font(.system(size: 50))
-                        .foregroundStyle(.white)
+            Group {
+                if let image {
+                    ZoomableImage(image: image)
+                } else if let playback {
+                    VideoPlayer(player: playback.player)
+                        .ignoresSafeArea()
+                } else if let errorText {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 42))
+                            .foregroundStyle(.yellow)
 
-                    Text("Video")
-                        .font(.title2.bold())
-                        .foregroundStyle(.white)
-
-                    Text(
-                        "El reproductor por rangos cifrados será la siguiente "
-                        + "mejora; no se reconstruye la colección completa."
-                    )
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                }
-                .padding()
-            } else if let errorText {
-                Text(errorText)
-                    .foregroundStyle(.red)
+                        Text(errorText)
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                    }
                     .padding()
-            } else {
-                ProgressView()
-                    .tint(.white)
+                } else if item.isVideo && isPreparingVideo {
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(1.2)
+
+                        Text("Preparando video cifrado…")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+
+                        Text(
+                            "La primera reproducción de un video importado con "
+                            + "v0.6.x verifica su blob completo una sola vez. "
+                            + "No crea otra copia ni mueve tus archivos."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                    }
+                } else {
+                    ProgressView()
+                        .tint(.white)
+                }
             }
 
             Button {
+                session.stopVideoPlayback(playback)
+                playback = nil
                 dismiss()
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -648,21 +731,41 @@ struct StoredSecCollectionMediaViewer: View {
             }
             .padding()
         }
-        .task {
-            guard item.isImage else { return }
-
+        .task(id: item.id) {
             do {
-                let data = try await session.decrypt(item)
+                if item.isImage {
+                    let data = try await session.decrypt(item)
 
-                guard let decoded = UIImage(data: data) else {
-                    errorText = "iOS no pudo decodificar esta imagen."
+                    guard let decoded = UIImage(data: data) else {
+                        errorText = "iOS no pudo decodificar esta imagen."
+                        return
+                    }
+
+                    image = decoded
                     return
                 }
 
-                image = decoded
+                if item.isVideo {
+                    isPreparingVideo = true
+                    defer { isPreparingVideo = false }
+
+                    let prepared = try await session.makeVideoPlayback(
+                        for: item
+                    )
+
+                    playback = prepared
+                    prepared.play()
+                    return
+                }
+
+                errorText = "Este tipo de archivo aún no tiene visor."
             } catch {
                 errorText = error.localizedDescription
             }
+        }
+        .onDisappear {
+            session.stopVideoPlayback(playback)
+            playback = nil
         }
     }
 }

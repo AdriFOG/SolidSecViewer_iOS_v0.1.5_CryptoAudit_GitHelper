@@ -48,41 +48,60 @@ run_test() {
   echo "$NAME RUNTIME: OK"
 }
 
-SOLID_STATUS=0
+SEC_STATUS=0
 PRIVATE_STATUS=0
+INDEX_STATUS=0
 
-run_test SolidSecSelfTest \
+run_test SecCollectionSelfTest \
   -swift-version 5 \
   -parse-as-library \
-  SolidSecViewer/SolidCrypto.swift \
+  SolidSecViewer/SecCollectionCrypto.swift \
+  SolidSecViewer/SecDirectVideoPlayer.swift \
   SolidSecViewer/VaultItem.swift \
   SolidSecViewer/VaultSession.swift \
   scripts/SelfTest/SelfTestMain.swift \
-  -framework Combine || SOLID_STATUS=$?
+  -framework Combine \
+  -framework AVFoundation \
+  -framework UniformTypeIdentifiers || SEC_STATUS=$?
 
 run_test PrivateVaultSelfTest \
   -swift-version 5 \
   -parse-as-library \
   SolidSecViewer/PrivateVaultCrypto.swift \
+  SolidSecViewer/NikaidoTransferJournal.swift \
   scripts/SelfTest/PrivateVaultSelfTestMain.swift \
   -framework CryptoKit \
   -framework Security || PRIVATE_STATUS=$?
 
+run_test IndexCompatibilitySelfTest \
+  -swift-version 5 \
+  -parse-as-library \
+  SolidSecViewer/PrivateVaultModel.swift \
+  SolidSecViewer/NikaidoVaultMigration.swift \
+  scripts/SelfTest/IndexCompatibilitySelfTestMain.swift || INDEX_STATUS=$?
+
 {
-  echo "===== SOLID .SEC COMPILE ====="
-  cat "$OUT/SolidSecSelfTest-compile.log" 2>/dev/null || true
+  echo "===== SEC COLLECTION COMPILE ====="
+  cat "$OUT/SecCollectionSelfTest-compile.log" 2>/dev/null || true
   echo
-  echo "===== SOLID .SEC RUNTIME ====="
-  cat "$OUT/SolidSecSelfTest-runtime.log" 2>/dev/null || true
+  echo "===== SEC COLLECTION RUNTIME ====="
+  cat "$OUT/SecCollectionSelfTest-runtime.log" 2>/dev/null || true
   echo
   echo "===== PRIVATE VAULT COMPILE ====="
   cat "$OUT/PrivateVaultSelfTest-compile.log" 2>/dev/null || true
   echo
   echo "===== PRIVATE VAULT RUNTIME ====="
   cat "$OUT/PrivateVaultSelfTest-runtime.log" 2>/dev/null || true
+  echo
+  echo "===== INDEX COMPATIBILITY COMPILE ====="
+  cat "$OUT/IndexCompatibilitySelfTest-compile.log" 2>/dev/null || true
+  echo
+  echo "===== INDEX COMPATIBILITY RUNTIME ====="
+  cat "$OUT/IndexCompatibilitySelfTest-runtime.log" 2>/dev/null || true
 } > "$OUT/selftest.log"
 
-test "$SOLID_STATUS" -eq 0
+test "$SEC_STATUS" -eq 0
 test "$PRIVATE_STATUS" -eq 0
+test "$INDEX_STATUS" -eq 0
 
 echo "ALL CRYPTO SELFTESTS: OK"

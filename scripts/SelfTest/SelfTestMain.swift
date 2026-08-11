@@ -49,7 +49,7 @@ private func require(_ condition: @autoclosure () -> Bool, _ message: String) th
 }
 
 @main
-struct SolidSecSelfTest {
+struct NikaidoExplorerSelfTest {
     @MainActor
     static func main() async {
         do {
@@ -70,51 +70,83 @@ struct SolidSecSelfTest {
             let expectedCipher =
                 "d77b3188f5583fe91e8cbede9dcc79c059c074f6ef38f2dfed04dc1811c0f423da"
 
-            let key = try SolidCrypto.deriveKey(password: password, salt: salt)
+            let key = try SecCollectionCrypto.deriveKey(password: password, salt: salt)
             try require(hex(key) == expectedKey, "PBKDF2-HMAC-SHA256 no coincide")
 
-            let cipher = try SolidCrypto.aesCTR(plain, key: key, iv: iv)
+            let cipher = try SecCollectionCrypto.aesCTR(plain, key: key, iv: iv)
             try require(hex(cipher) == expectedCipher, "AES-256-CTR no coincide")
 
-            let recovered = try SolidCrypto.aesCTR(cipher, key: key, iv: iv)
+            let recovered = try SecCollectionCrypto.aesCTR(cipher, key: key, iv: iv)
             try require(recovered == plain, "AES-CTR round-trip falló")
 
-            let empty = try SolidCrypto.aesCTR(Data(), key: key, iv: iv)
+
+            let empty = try SecCollectionCrypto.aesCTR(Data(), key: key, iv: iv)
             try require(empty.isEmpty, "AES-CTR con entrada vacía falló")
 
+            // Random-access CTR must match slicing a full-stream transform,
+            // including offsets inside AES blocks.
+            var rangePlain = Data(count: 4097)
+            for index in rangePlain.indices {
+                rangePlain[index] = UInt8(
+                    truncatingIfNeeded: index &* 17 &+ 91
+                )
+            }
+
+            let rangeCipher = try SecCollectionCrypto.aesCTR(
+                rangePlain,
+                key: key,
+                iv: iv
+            )
+
+            for offset in [0, 1, 15, 16, 17, 255, 256, 1023, 2049, 4080] {
+                let available = min(513, rangeCipher.count - offset)
+
+                let partial = try SecCollectionCrypto.aesCTR(
+                    Data(rangeCipher[offset..<(offset + available)]),
+                    key: key,
+                    iv: iv,
+                    streamOffset: Int64(offset)
+                )
+
+                try require(
+                    partial == Data(rangePlain[offset..<(offset + available)]),
+                    "AES-CTR random access falló en offset \(offset)"
+                )
+            }
+
             do {
-                _ = try SolidCrypto.aesCTR(
+                _ = try SecCollectionCrypto.aesCTR(
                     Data([0x01]),
                     key: Data(repeating: 0, count: 31),
                     iv: iv
                 )
                 throw SelfTestError.failed("AES aceptó una clave que no es de 256 bits")
-            } catch SolidCryptoError.invalidKeyOrIV {
+            } catch SecCollectionCryptoError.invalidKeyOrIV {
                 // esperado
             }
 
             do {
-                _ = try SolidCrypto.aesCTR(
+                _ = try SecCollectionCrypto.aesCTR(
                     Data([0x01]),
                     key: key,
                     iv: Data(repeating: 0, count: 15)
                 )
                 throw SelfTestError.failed("AES aceptó un IV que no mide 16 bytes")
-            } catch SolidCryptoError.invalidKeyOrIV {
+            } catch SecCollectionCryptoError.invalidKeyOrIV {
                 // esperado
             }
 
             let b64 = "aGVsbG8udHh0"
             try require(
-                SolidCrypto.decodeBase64URL(b64) == Data("hello.txt".utf8),
+                SecCollectionCrypto.decodeBase64URL(b64) == Data("hello.txt".utf8),
                 "Base64URL falló"
             )
 
-            // End-to-end synthetic Solid Explorer-style .sec fixture.
+            // End-to-end synthetic compatible .sec fixture.
             // No private user data is needed in CI.
             let fm = FileManager.default
             let root = fm.temporaryDirectory
-                .appendingPathComponent("SolidSecSelfTest-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("NikaidoExplorerSelfTest-\(UUID().uuidString)", isDirectory: true)
             let folder = root.appendingPathComponent("fixture.sec", isDirectory: true)
 
             try fm.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -122,7 +154,7 @@ struct SolidSecSelfTest {
 
             let header = salt + iv + Data([0x00, 0x00, 0x00, 0x00])
 
-            let encryptedKeyName = try SolidCrypto.aesCTR(
+            let encryptedKeyName = try SecCollectionCrypto.aesCTR(
                 Data(".key".utf8),
                 key: key,
                 iv: iv
@@ -131,14 +163,14 @@ struct SolidSecSelfTest {
             try header.write(to: keyURL)
 
             let originalName = "hello.txt"
-            let originalBody = Data("SolidSec parser self-test OK".utf8)
+            let originalBody = Data("Nikaido Explorer parser self-test OK".utf8)
 
-            let encryptedName = try SolidCrypto.aesCTR(
+            let encryptedName = try SecCollectionCrypto.aesCTR(
                 Data(originalName.utf8),
                 key: key,
                 iv: iv
             )
-            let encryptedBody = try SolidCrypto.aesCTR(
+            let encryptedBody = try SecCollectionCrypto.aesCTR(
                 originalBody,
                 key: key,
                 iv: iv
@@ -166,11 +198,11 @@ struct SolidSecSelfTest {
             vault.lock()
             try require(!vault.isUnlocked, "lock() no cerró la sesión")
 
-            print("SOLIDSEC SELFTEST: OK")
+            print("SEC COLLECTION SELFTEST: OK")
             exit(0)
 
         } catch {
-            fputs("SOLIDSEC SELFTEST: FAIL - \(error)\n", stderr)
+            fputs("SEC COLLECTION SELFTEST: FAIL - \(error)\n", stderr)
             exit(1)
         }
     }

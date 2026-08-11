@@ -1,5 +1,5 @@
-SOLIDSEC — GITHUB REPO HELPER v0.6.2
-===================================
+NIKAIDO EXPLORER — GITHUB REPO HELPER v0.8.0
+============================================
 
 Usa UN SOLO repositorio permanente.
 
@@ -12,37 +12,26 @@ BUILDS SIGUIENTES
 ACTUALIZAR_GITHUB.bat
 
 El actualizador:
-1. lee OWNER/REPO guardado en %LOCALAPPDATA%\SolidSecViewer\github_repo.txt;
-2. clona ese repo a una carpeta TEMP;
+1. lee OWNER/REPO guardado en la ruta técnica heredada
+   `%LOCALAPPDATA%\SolidSecViewer\github_repo.txt`;
+2. clona el repo a TEMP;
 3. conserva `.git` y reemplaza el resto por esta build;
 4. hace `git add -A`, commit y push;
-5. limpia la copia temporal si todo termina bien.
+5. limpia TEMP si termina bien.
 
-CORRECCIONES DE v0.6.2
-----------------------
-- Se usa `%CD%` después de `cd /d "%~dp0"` para evitar el problema de la barra
-  final de `%~dp0` con Robocopy y rutas con espacios.
-- Se comprueba que `SolidSecViewer.xcodeproj` exista antes de tocar GitHub.
-- Se conserva el código de salida real de Robocopy.
-- Se excluye el entorno Python local del PC Companion; antes podía terminar
-  subiendo cientos de MB de `.venv` al repositorio.
+La ruta `%LOCALAPPDATA%\SolidSecViewer` y `SolidSecViewer.xcodeproj` se mantienen como
+identificadores técnicos heredados para no romper configuración/proyecto. El nombre
+visible del producto es Nikaido Explorer.
 
 EXCLUSIONES IMPORTANTES
 -----------------------
-El BAT y `.gitignore` excluyen, entre otros:
+El BAT/.gitignore excluyen, entre otros:
 - `.git/`
-- `build/`
-- `DerivedData/`
-- `.swiftpm/`
+- `build/`, `DerivedData/`, `.swiftpm/`
 - `tools\LANTransfer\.venv/`
-- `__pycache__/`
-- `*.pyc`
-- `*.sec`
-- `*.ipa`
-- `*.zip`
-- `*.xcresult`
+- `__pycache__/`, `*.pyc`
+- `*.sec`, `*.ipa`, `*.zip`, `*.xcresult`
 - certificados/provisioning
-- `.env*`
-- `secrets.*`
+- `.env*`, `secrets.*`
 
-No guardes material privado dentro del árbol del proyecto aunque esté excluido.
+No metas material privado dentro del árbol del proyecto aunque esté excluido.

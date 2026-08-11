@@ -122,6 +122,7 @@ struct PrivateVaultSelfTest {
             let recoveredData = try Data(contentsOf: recovered)
             try require(recoveredData == large, "Archivo por bloques no coincide")
 
+
             let memoryRecovered = try PrivateVaultCrypto.decryptFileToData(
                 source: encrypted,
                 key: key,
@@ -129,6 +130,48 @@ struct PrivateVaultSelfTest {
                 expectedSHA256: largeHash
             )
             try require(memoryRecovered == large, "Descifrado a memoria no coincide")
+
+            let manifest = try PrivateVaultCrypto.buildVerifiedRandomAccessManifest(
+                source: encrypted,
+                key: key,
+                expectedPlaintextSize: Int64(large.count),
+                expectedSHA256: largeHash
+            )
+
+            try require(
+                manifest.frameSHA256.count == 3,
+                "Manifest random-access esperaba 3 frames"
+            )
+
+            let rangeReader = try PrivateVaultCrypto.RandomAccessReader(
+                source: encrypted,
+                key: key,
+                expectedPlaintextSize: Int64(large.count),
+                frameSHA256: manifest.frameSHA256
+            )
+
+            let testRanges: [(Int64, Int)] = [
+                (0, 4096),
+                (Int64(PrivateVaultCrypto.chunkSize - 257), 2048),
+                (Int64(PrivateVaultCrypto.chunkSize + 13), 777_777),
+                (Int64(large.count - 9999), 9999)
+            ]
+
+            for (offset, length) in testRanges {
+                let actual = try rangeReader.read(
+                    offset: offset,
+                    length: length
+                )
+                let start = Int(offset)
+                let end = min(start + length, large.count)
+
+                try require(
+                    actual == Data(large[start..<end]),
+                    "RandomAccessReader no coincide en offset \(offset)"
+                )
+            }
+
+            rangeReader.invalidate()
 
             // StreamEncryptor must produce the same readable chunked format
             // even when writes arrive at awkward boundaries.
@@ -262,6 +305,27 @@ struct PrivateVaultSelfTest {
             let reorderedURL = root.appendingPathComponent("reordered.ssvb")
             try reordered.write(to: reorderedURL)
 
+
+            // A random-access reader is position-authenticated by the encrypted
+            // manifest. It must reject the swapped valid GCM frame immediately.
+            let reorderedReader = try PrivateVaultCrypto.RandomAccessReader(
+                source: reorderedURL,
+                key: key,
+                expectedPlaintextSize: Int64(large.count),
+                frameSHA256: manifest.frameSHA256
+            )
+
+            do {
+                _ = try reorderedReader.read(offset: 0, length: 1024)
+                throw PrivateSelfTestError.failed(
+                    "RandomAccessReader aceptó un frame válido en posición incorrecta"
+                )
+            } catch PrivateVaultCryptoError.integrityMismatch {
+                // esperado
+            }
+
+            reorderedReader.invalidate()
+
             // Prove the fixture actually changes plaintext when intact GCM
             // frames are reordered.
             let reorderedPlaintext = try PrivateVaultCrypto.decryptFileToData(
@@ -290,6 +354,214 @@ struct PrivateVaultSelfTest {
             } catch PrivateVaultCryptoError.integrityMismatch {
                 // esperado
             }
+
+            // Cancellation must stop long plaintext work at an encrypted
+            // frame boundary and must not leave a completed plaintext artifact.
+            var memoryCancelChecks = 0
+            do {
+                _ = try PrivateVaultCrypto.decryptFileToData(
+                    source: encrypted,
+                    key: key,
+                    maxPlaintextBytes: large.count + 1,
+                    expectedPlaintextSize: Int64(large.count),
+                    expectedSHA256: largeHash,
+                    shouldCancel: {
+                        memoryCancelChecks += 1
+                        return memoryCancelChecks >= 2
+                    }
+                )
+                throw PrivateSelfTestError.failed(
+                    "decryptFileToData ignoró la cancelación"
+                )
+            } catch PrivateVaultCryptoError.operationCancelled {
+                // esperado
+            }
+
+            let cancelledDestination = root.appendingPathComponent(
+                "cancelled-recovered.bin"
+            )
+            var fileCancelChecks = 0
+            do {
+                try PrivateVaultCrypto.decryptFile(
+                    source: encrypted,
+                    destination: cancelledDestination,
+                    key: key,
+                    expectedPlaintextSize: Int64(large.count),
+                    expectedSHA256: largeHash,
+                    shouldCancel: {
+                        fileCancelChecks += 1
+                        return fileCancelChecks >= 2
+                    }
+                )
+                throw PrivateSelfTestError.failed(
+                    "decryptFile ignoró la cancelación"
+                )
+            } catch PrivateVaultCryptoError.operationCancelled {
+                // esperado
+            }
+            try require(
+                !fm.fileExists(atPath: cancelledDestination.path),
+                "decryptFile dejó plaintext parcial tras cancelarse"
+            )
+
+            // Nikaido Link pending journal: completed files survive a
+            // disconnect, metadata is authenticated by the vault key, and a
+            // missing pending blob is sanitized so that file is retransmitted.
+            let pendingRoot = root.appendingPathComponent(
+                "pending",
+                isDirectory: true
+            )
+            try fm.createDirectory(
+                at: pendingRoot,
+                withIntermediateDirectories: true
+            )
+
+            let transferID = String(repeating: "a", count: 64)
+            let manifestHash = String(repeating: "b", count: 64)
+
+            var pendingState = try NikaidoTransferJournal.openOrCreate(
+                root: pendingRoot,
+                key: key,
+                transferID: transferID,
+                manifestHash: manifestHash,
+                folderName: "Fixture.sec",
+                fileCount: 3,
+                totalSize: 336,
+                parentID: nil
+            )
+
+            try require(
+                pendingState.completed.isEmpty,
+                "journal nuevo no estaba vacío"
+            )
+
+            let pendingID = UUID()
+            let pendingBlobName = pendingID.uuidString + ".ssvb"
+            let pendingBlobURL = try NikaidoTransferJournal.pendingBlobURL(
+                root: pendingRoot,
+                transferID: transferID,
+                blobName: pendingBlobName
+            )
+
+            let pendingPlaintext = Data(repeating: 0x41, count: 100)
+            let pendingWriter = try PrivateVaultCrypto.StreamEncryptor(
+                destination: pendingBlobURL,
+                key: key,
+                expectedPlaintextSize: Int64(pendingPlaintext.count)
+            )
+            try pendingWriter.append(pendingPlaintext)
+            let pendingHash = try pendingWriter.finish()
+
+            let pendingRecord = NikaidoPendingTransferRecord(
+                sourceIndex: 0,
+                id: pendingID,
+                blobName: pendingBlobName,
+                filename: "encrypted-name-0",
+                originalSize: 100,
+                contentSHA256: pendingHash
+            )
+
+            try NikaidoTransferJournal.appendCompleted(
+                pendingRecord,
+                to: &pendingState,
+                root: pendingRoot,
+                key: key
+            )
+
+            let resumedState = try NikaidoTransferJournal.openOrCreate(
+                root: pendingRoot,
+                key: key,
+                transferID: transferID,
+                manifestHash: manifestHash,
+                folderName: "Fixture.sec",
+                fileCount: 3,
+                totalSize: 336,
+                parentID: nil
+            )
+
+            try require(
+                resumedState.completedIndexes == [0],
+                "journal no recuperó índice completo"
+            )
+            try require(
+                resumedState.completedBytes == 100,
+                "journal no recuperó bytes completos"
+            )
+
+            do {
+                _ = try NikaidoTransferJournal.openOrCreate(
+                    root: pendingRoot,
+                    key: key,
+                    transferID: transferID,
+                    manifestHash: String(repeating: "c", count: 64),
+                    folderName: "Fixture.sec",
+                    fileCount: 3,
+                    totalSize: 336,
+                    parentID: nil
+                )
+                throw PrivateSelfTestError.failed(
+                    "journal aceptó manifiesto distinto para el mismo transferID"
+                )
+            } catch NikaidoTransferJournalError.stateMismatch {
+                // esperado
+            }
+
+            // Journal state is itself encrypted/authenticated. Flipping any byte
+            // must make loading fail rather than silently accepting fake progress.
+            let stateURL = try NikaidoTransferJournal.transactionDirectory(
+                root: pendingRoot,
+                transferID: transferID
+            ).appendingPathComponent("state.nkt")
+            let authenticState = try Data(contentsOf: stateURL)
+            var damagedState = authenticState
+            try require(
+                damagedState.count > 20,
+                "fixture state.nkt demasiado pequeño"
+            )
+            damagedState[20] ^= 0x01
+            try damagedState.write(to: stateURL, options: [.atomic])
+
+            do {
+                _ = try NikaidoTransferJournal.load(
+                    root: pendingRoot,
+                    key: key,
+                    transferID: transferID
+                )
+                throw PrivateSelfTestError.failed(
+                    "journal aceptó metadata cifrada manipulada"
+                )
+            } catch PrivateVaultCryptoError.authenticationFailed {
+                // esperado
+            }
+
+            try authenticState.write(to: stateURL, options: [.atomic])
+
+            try fm.removeItem(at: pendingBlobURL)
+
+            let sanitizedState = try NikaidoTransferJournal.openOrCreate(
+                root: pendingRoot,
+                key: key,
+                transferID: transferID,
+                manifestHash: manifestHash,
+                folderName: "Fixture.sec",
+                fileCount: 3,
+                totalSize: 336,
+                parentID: nil
+            )
+
+            try require(
+                sanitizedState.completed.isEmpty,
+                "journal no eliminó referencia a blob pendiente ausente"
+            )
+
+            NikaidoTransferJournal.delete(
+                root: pendingRoot,
+                transferID: transferID
+            )
+            try require(
+                NikaidoTransferJournal.countPending(root: pendingRoot) == 0,
+                "journal pendiente no se eliminó"
+            )
 
             let wrongKey = Data(repeating: 0x5a, count: 32)
             do {

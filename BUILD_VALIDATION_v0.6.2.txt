@@ -1,5 +1,0 @@
-project.pbxproj: /mnt/data/SolidSecViewer_iOS_v0.6.2_SelfTestIntegrityFix/SolidSecViewer.xcodeproj/project.pbxproj: OK
-CI shell scripts: OK
-GitHub Actions YAML: OK
-Swift parse: 22/22
-PC sender py_compile: OK

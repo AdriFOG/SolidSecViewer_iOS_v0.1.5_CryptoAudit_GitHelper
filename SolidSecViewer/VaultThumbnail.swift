@@ -80,7 +80,7 @@ struct VaultThumbnail: View {
             if let values = try? item.encryptedURL.resourceValues(
                 forKeys: [.fileSizeKey]
             ), let fileSize = values.fileSize,
-               fileSize > 64 * 1024 * 1024 + SolidCrypto.headerSize
+               fileSize > 64 * 1024 * 1024 + SecCollectionCrypto.headerSize
             {
                 image = nil
                 return

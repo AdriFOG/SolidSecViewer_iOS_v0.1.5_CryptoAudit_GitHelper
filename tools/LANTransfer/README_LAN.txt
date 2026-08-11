@@ -1,78 +1,63 @@
-SOLIDSEC LAN PROTOCOL v3 — v0.6.1 HARDENING
-===========================================
+NIKAIDO LINK v4 — PROTOCOLO / RELIABILITY
+=========================================
 
-FLUJO
------
-Windows abre localmente el ZIP/carpeta `.sec` y envía únicamente los archivos
-cifrados directos de la colección.
-
-  ZIP en PC
-    -> detectar Fotos.sec
-    -> leer archivo cifrado #1
-    -> AES-GCM transporte + secuencia
-    -> Wi-Fi/TCP
-    -> AES-GCM Mi bóveda
-    -> blob UUID.ssvb
-    -> repetir
-
-El ZIP completo no se guarda en el iPhone.
-
-PROTOCOLO
----------
-Magic: SSVLAN03
-Versión metadata: 3
-Transporte: TCP sobre Network.framework
-Secreto: 128 bits aleatorios mostrados por el iPhone
+Magic: `NXLINK04`
+Metadata: versión 4
+Transporte: TCP / Network.framework
+Interfaz requerida en iPhone: Wi-Fi
+Secreto de sesión: 128 bits aleatorios mostrados en pantalla
 Clave transporte: SHA-256(secreto)
-Frame crypto: AES-GCM con nonce aleatorio por frame
-Secuencia: UInt64 big-endian 0,1,2,... dentro del plaintext autenticado
-Tamaño de data frame plaintext útil: hasta 1 MiB
+Frame: AES-GCM, nonce aleatorio
+Secuencia autenticada: UInt64 big-endian independiente por dirección
+Payload de datos: hasta 1 MiB por frame
 
-El receptor exige la secuencia exacta. Repetir o reordenar un frame válido provoca
-rechazo de la sesión.
+HANDSHAKE
+---------
+PC -> iPhone:
+- magic;
+- collection metadata cifrada:
+  `transferID`, `manifestHash`, folderName, fileCount, totalSize.
 
-VALIDACIONES
+iPhone -> PC:
+- `resume` cifrado;
+- `completedIndexes` + `completedBytes`; o
+- `alreadyCommitted=true` si esa transferencia ya quedó en el índice.
+
+ARCHIVOS
+--------
+Cada archivo enviado incluye índice estable, nombre cifrado original y tamaño.
+El receptor escribe un `.ssvb` en una transacción oculta `pending`. Al terminar el
+archivo, finaliza AES-GCM, obtiene SHA-256 y actualiza `state.nkt` cifrado.
+
+Un fallo borra solo el archivo parcial actual. Los archivos completos se conservan
+para resume.
+
+COMMIT / ACK
 ------------
-- versión de protocolo;
-- nombre de carpeta terminado en `.sec`;
-- máximo 200000 archivos;
-- máximo 100 GB anunciados;
-- nombres <=1024 bytes UTF-8 y sin `/`, `\\`, `:`, NUL, `.` o `..`;
-- nombres duplicados rechazados;
-- espacio libre + margen;
-- tamaño de cada archivo y total exacto;
-- AES-GCM de cada frame;
-- orden exacto de frames;
-- timeout de handshake/inactividad.
+Cuando fileCount y byte total coinciden:
+1. los blobs pendientes se mueven al almacén principal;
+2. se crea la carpeta de colección y sus entradas;
+3. el índice cifrado se persiste;
+4. el transferID queda asociado a la carpeta;
+5. se elimina el journal pendiente;
+6. iPhone -> PC envía ACK cifrado `committed`.
 
-SENDER PC
----------
-- ZIP máximo de 500000 entradas para el escaneo;
-- selección por señal de archivo de 36 bytes;
-- fallback para carpeta Solid renombrada;
-- candidatos calculados sin búsqueda O(n²);
-- decoys explícitos/fallback compiten por score en vez de preferir cualquier `.sec`;
-- rutas absolutas, `..`, NUL, `:`, symlinks y ZIP con contraseña rechazados;
-- subcarpetas físicas `.sec` rechazadas para no omitirlas silenciosamente.
+Si el índice falla, los blobs ya movidos se intentan devolver a `pending` para poder
+reanudar. Si el ACK se pierde después de un commit correcto, el siguiente handshake
+reconoce el transferID como ya guardado.
 
-COMMIT
-------
-Los blobs recibidos permanecen pendientes. Solo después de recibir todos los archivos
-y bytes, finalizar su hash/cifrado exterior y persistir el índice cifrado, la carpeta
-`.sec` aparece en Mi bóveda.
+IDENTIDAD DE FUENTE
+-------------------
+Nikaido Bridge ordena los archivos de forma determinista y genera un manifest de
+metadata de la fuente. Para ZIP usa información estable de la central directory;
+para carpeta directa usa tamaño/mtime. Esto está pensado para detectar cambios
+accidentales y mantener índices estables de resume; no sustituye la autenticación
+criptográfica del transporte ni la integridad AES-GCM/SHA-256 del iPhone.
 
-En cancel/failure se eliminan blobs parciales/no commiteados.
-
-ESPACIO
--------
-Una colección de aproximadamente 12 GB ocupa aproximadamente el tamaño de sus
-archivos `.sec` + overhead pequeño del cifrado exterior/índice.
-
-No se reconstruye un ZIP adicional de 12 GB para navegarla.
-
-PENDIENTE
----------
-- reanudación de transferencias;
-- ACK final desde iPhone después del commit del índice;
-- soporte validado para subcarpetas `.sec`;
-- streaming de video dual-layer por rangos.
+LÍMITES CONOCIDOS
+-----------------
+- resume es por archivo, no por chunk dentro de un archivo;
+- subcarpetas físicas `.sec` se rechazan;
+- el commit final de cantidades extremas de archivos todavía puede producir una
+  pausa de metadata;
+- el comportamiento real de background depende de iOS/LiveContainer.
