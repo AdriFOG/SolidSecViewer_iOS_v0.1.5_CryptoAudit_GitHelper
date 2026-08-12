@@ -640,7 +640,7 @@ final class PrivateVaultSession: ObservableObject {
             return nil
         }
 
-        let worker = Task.detached(priority: .utility) {
+        let worker: Task<Data?, Never> = Task.detached(priority: .utility) { () -> Data? in
             do {
                 let ciphertext = try Self.readBoundedFile(
                     url,

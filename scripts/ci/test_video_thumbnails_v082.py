@@ -96,4 +96,7 @@ if "PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;" not in pbx:
 if 'Data("SolidSecPrivateVault-v1".utf8)' not in vault:
     fail("legacy vault verifier bytes changed")
 
+if "let worker: Task<Data?, Never> = Task.detached" not in vault:
+    fail("thumbnail cache worker lost explicit Data? task typing")
+
 print("VIDEO THUMBNAIL GUARD: OK")

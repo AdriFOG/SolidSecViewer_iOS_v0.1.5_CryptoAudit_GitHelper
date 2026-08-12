@@ -44,6 +44,7 @@ if not any(v in pbx for v in (
     "MARKETING_VERSION = 0.9.0;",
     "MARKETING_VERSION = 0.10.0;",
     "MARKETING_VERSION = 0.10.1;",
+    "MARKETING_VERSION = 0.10.2;",
 )):
     fail("marketing version ya no conserva la línea v0.9+")
 
