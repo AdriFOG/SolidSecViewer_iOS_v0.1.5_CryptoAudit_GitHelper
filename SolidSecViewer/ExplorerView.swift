@@ -297,7 +297,7 @@ struct ExplorerView: View {
         HStack(spacing: 10) {
             Image(systemName: "folder.fill.badge.gearshape")
                 .font(.title3)
-                .foregroundStyle(.accent)
+                .foregroundStyle(Color.accentColor)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Nikaido Explorer")

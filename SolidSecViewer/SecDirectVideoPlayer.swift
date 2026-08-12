@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
+#if canImport(UIKit)
 import UIKit
+#endif
 import UniformTypeIdentifiers
 
 enum SecDirectVideoError: Error, LocalizedError {
@@ -267,6 +269,7 @@ final class SecDirectVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegat
 }
 
 
+#if canImport(UIKit)
 final class SecDirectVideoThumbnailOperation: @unchecked Sendable {
     private let loader: SecDirectVideoResourceLoader
     private let asset: AVURLAsset
@@ -408,6 +411,20 @@ enum SecDirectVideoThumbnailGenerator {
         return try await operation.generateJPEG()
     }
 }
+
+#else
+enum SecDirectVideoThumbnailGenerator {
+    static func generateJPEG(
+        source: URL,
+        key: Data,
+        salt: Data,
+        iv: Data,
+        filename: String
+    ) async throws -> Data {
+        throw SecDirectVideoError.thumbnailGenerationFailed
+    }
+}
+#endif
 
 @MainActor
 final class SecDirectVideoPlayback: Identifiable {

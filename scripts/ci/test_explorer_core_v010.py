@@ -27,4 +27,4 @@ checks = {
 failed = [name for name, ok in checks.items() if not ok]
 if failed:
     raise SystemExit("V0.10 EXPLORER GUARD FAILED: " + ", ".join(failed))
-print("EXPLORER CORE V0.10.0: OK")
+print("EXPLORER CORE V0.10.x: OK")

@@ -103,9 +103,9 @@ final class ExplorerTrashManager: ObservableObject {
         save()
     }
 
-    func empty() async throws {
+    func empty() async {
         let current = entries
-        try await Task.detached(priority: .utility) {
+        await Task.detached(priority: .utility) {
             let fm = FileManager.default
             for entry in current {
                 let root = URL(fileURLWithPath: entry.rootPath, isDirectory: true)
@@ -172,7 +172,7 @@ struct ExplorerTrashView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Vaciar", role: .destructive) {
-                        Task { try? await trash.empty() }
+                        Task { await trash.empty() }
                     }
                     .disabled(trash.entries.isEmpty)
                 }
