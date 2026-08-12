@@ -1,0 +1,25 @@
+NIKAIDO EXPLORER v0.10.3 LOCAL VALIDATION
+==========================================
+
+[OK] Project audit / 40 Swift sources referenced
+[OK] Security regression guards
+[OK] Lifecycle guard
+[OK] In-place video guard
+[OK] Nikaido reliability guard
+[OK] Diagnostics guard
+[OK] Video thumbnail guard
+[OK] Explorer v0.9 guard
+[OK] Explorer v0.10 guard
+[OK] Embed Frameworks phase present for AMSMB2
+[OK] CodeSignOnCopy + RemoveHeadersOnCopy configured
+[OK] package_ipa.sh shell syntax
+[OK] validate_bundle.sh shell syntax
+[OK] Python CI scripts compile
+
+NEW RELEASE GATE:
+- validate_bundle.sh now rejects any linked @rpath framework missing from app/Frameworks.
+- package_ipa.sh refuses to package an IPA without AMSMB2.framework/AMSMB2.
+
+NOT VALIDATED IN THIS LINUX ENVIRONMENT:
+- real Xcode iPhoneOS build / embedding output; GitHub Actions is authoritative.
+- LiveContainer launch on device.

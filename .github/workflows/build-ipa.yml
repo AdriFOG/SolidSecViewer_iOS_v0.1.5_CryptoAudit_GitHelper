@@ -181,8 +181,8 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: NikaidoExplorer-LiveContainer-v0.10.2
-          path: build/package/NikaidoExplorer-LiveContainer-v0.10.2.ipa
+          name: NikaidoExplorer-LiveContainer-v0.10.3
+          path: build/package/NikaidoExplorer-LiveContainer-v0.10.3.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -190,7 +190,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: NikaidoExplorer-build-diagnostics-v0.10.2
+          name: NikaidoExplorer-build-diagnostics-v0.10.3
           path: |
             build/selftest/selftest.log
             build/selftest/SecCollectionSelfTest-compile.log

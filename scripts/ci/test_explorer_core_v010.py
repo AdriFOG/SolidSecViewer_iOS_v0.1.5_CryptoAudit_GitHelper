@@ -19,6 +19,8 @@ checks = {
     "delete uses trash": "trash.moveToTrash" in view,
     "undo UI": "Deshacer última eliminación" in view,
     "SMB package": 'https://github.com/amosavian/AMSMB2' in PBX,
+    "SMB dynamic embed phase": "PBXCopyFilesBuildPhase" in PBX and "Embed Frameworks" in PBX and "A046 /* AMSMB2 in Embed Frameworks */" in PBX,
+    "SMB CodeSignOnCopy": "CodeSignOnCopy" in PBX and "RemoveHeadersOnCopy" in PBX,
     "SMB listing": "contentsOfDirectory" in smb and "listShares" in smb,
     "SMB download": "func download" in smb,
     "SMB upload": "func upload" in smb,

@@ -40,12 +40,10 @@ for required in (
     if required not in pbx:
         fail(f"dependencia de archivos comprimidos incompleta: {required}")
 
-if not any(v in pbx for v in (
-    "MARKETING_VERSION = 0.9.0;",
-    "MARKETING_VERSION = 0.10.0;",
-    "MARKETING_VERSION = 0.10.1;",
-    "MARKETING_VERSION = 0.10.2;",
-)):
+import re
+
+versions = re.findall(r"MARKETING_VERSION = (\d+)\.(\d+)\.(\d+);", pbx)
+if not versions or not all((int(major), int(minor)) >= (0, 9) for major, minor, _ in versions):
     fail("marketing version ya no conserva la línea v0.9+")
 
 if "PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;" not in pbx:

@@ -50,6 +50,7 @@
         A043 /* ExplorerDragDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = B041 /* ExplorerDragDrop.swift */; };
         A044 /* ExplorerSMB.swift in Sources */ = {isa = PBXBuildFile; fileRef = B042 /* ExplorerSMB.swift */; };
         A045 /* AMSMB2 in Frameworks */ = {isa = PBXBuildFile; productRef = Z004 /* AMSMB2 */; };
+        A046 /* AMSMB2 in Embed Frameworks */ = {isa = PBXBuildFile; productRef = Z004 /* AMSMB2 */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -111,6 +112,20 @@
         };
 /* End PBXFrameworksBuildPhase section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+        C004 /* Embed Frameworks */ = {
+            isa = PBXCopyFilesBuildPhase;
+            buildActionMask = 2147483647;
+            dstPath = "";
+            dstSubfolderSpec = 10;
+            files = (
+                A046 /* AMSMB2 in Embed Frameworks */,
+            );
+            name = "Embed Frameworks";
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXGroup section */
         D001 = {
             isa = PBXGroup;
@@ -144,6 +159,7 @@
                 C002 /* Sources */,
                 C001 /* Frameworks */,
                 C003 /* Resources */,
+                C004 /* Embed Frameworks */,
             );
             buildRules = ();
             dependencies = ();
@@ -292,12 +308,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 28;
+                CURRENT_PROJECT_VERSION = 29;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.10.2;
+                MARKETING_VERSION = 0.10.3;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;
@@ -310,12 +326,12 @@
             isa = XCBuildConfiguration;
             buildSettings = {
                 CODE_SIGN_STYLE = Automatic;
-                CURRENT_PROJECT_VERSION = 28;
+                CURRENT_PROJECT_VERSION = 29;
                 EXECUTABLE_NAME = SolidSecViewer;
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = SolidSecViewer/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-                MARKETING_VERSION = 0.10.2;
+                MARKETING_VERSION = 0.10.3;
                 PRODUCT_BUNDLE_IDENTIFIER = com.teamnikaido.solidsecviewer;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SWIFT_EMIT_LOC_STRINGS = YES;

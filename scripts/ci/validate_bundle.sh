@@ -85,4 +85,24 @@ fi
 log "Dependency paths:"
 cat "$OUT/dependency-paths.txt" | tee -a "$OUT/validation.log"
 
+# A linked @rpath framework is useless to LiveContainer unless it is physically
+# embedded in SolidSecViewer.app/Frameworks. Validate all such dependencies, not
+# only AMSMB2, so this class of instant-launch crash cannot pass CI again.
+while IFS= read -r dep; do
+  case "$dep" in
+    @rpath/*.framework/*)
+      rel="${dep#@rpath/}"
+      framework_dir="${rel%%.framework/*}.framework"
+      framework_binary="${rel##*/}"
+      candidate="$APP_PATH/Frameworks/$framework_dir/$framework_binary"
+      [ -f "$candidate" ] || fail "linked dynamic framework missing from app bundle: $dep (expected $candidate)"
+      log "Embedded dependency present: $framework_dir/$framework_binary"
+      ;;
+  esac
+done < "$OUT/dependency-paths.txt"
+
+# AMSMB2 4.x is intentionally a dynamic SwiftPM library and must be embedded.
+[ -f "$APP_PATH/Frameworks/AMSMB2.framework/AMSMB2" ] || \
+  fail "AMSMB2.framework is not embedded; LiveContainer would fail dlopen at launch"
+
 log "LIVE CONTAINER GUEST VALIDATION: OK"
