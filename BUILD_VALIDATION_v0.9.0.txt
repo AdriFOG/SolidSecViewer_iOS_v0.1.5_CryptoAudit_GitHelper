@@ -1,0 +1,18 @@
+project.pbxproj: /mnt/data/NikaidoExplorer_iOS_v0.9.0_FileManagerCore/SolidSecViewer.xcodeproj/project.pbxproj: OK
+Info.plist: /mnt/data/NikaidoExplorer_iOS_v0.9.0_FileManagerCore/SolidSecViewer/Info.plist: OK
+Swift syntax parse: 39/39
+Python py_compile: OK
+Shell syntax: OK
+audit_project.py: SECURITY REGRESSION GUARDS: OK
+test_lifecycle_policy.py: LIFECYCLE GUARD: OK
+test_inplace_video_policy.py: INPLACE VIDEO GUARD: OK
+test_nikaido_reliability.py: NIKAIDO RELIABILITY GUARD: OK
+test_diagnostics_v081.py: V0.8.2 DIAGNOSTICS GUARD: OK
+test_video_thumbnails_v082.py: VIDEO THUMBNAIL GUARD: OK
+test_explorer_core_v090.py: EXPLORER CORE V0.9.0: OK
+GitHub Actions YAML: OK
+Xcode Swift refs: 36/36
+Vault compatibility invariants: OK
+External-folder permission model: OK
+Dual-pane core: OK
+ZIP / 7z / RAR core: OK

@@ -44,13 +44,15 @@ jobs:
             xcrun swiftc -frontend -swift-version 5 -parse "$source"
           done < <(find SolidSecViewer -maxdepth 1 -name '*.swift' -print | sort)
 
-          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py scripts/ci/test_lifecycle_policy.py scripts/ci/test_inplace_video_policy.py scripts/ci/test_nikaido_reliability.py scripts/ci/test_diagnostics_v081.py scripts/ci/test_video_thumbnails_v082.py
+          python3 -m py_compile tools/LANTransfer/send_sec_collection.py scripts/ci/audit_project.py scripts/ci/test_lifecycle_policy.py scripts/ci/test_inplace_video_policy.py scripts/ci/test_nikaido_reliability.py scripts/ci/test_diagnostics_v081.py scripts/ci/test_video_thumbnails_v082.py scripts/ci/test_explorer_core_v090.py scripts/ci/test_explorer_core_v010.py
           python3 scripts/ci/audit_project.py
           python3 scripts/ci/test_lifecycle_policy.py
           python3 scripts/ci/test_inplace_video_policy.py
           python3 scripts/ci/test_nikaido_reliability.py
           python3 scripts/ci/test_diagnostics_v081.py
           python3 scripts/ci/test_video_thumbnails_v082.py
+          python3 scripts/ci/test_explorer_core_v090.py
+          python3 scripts/ci/test_explorer_core_v010.py
 
           if grep -R --line-number --fixed-strings "ContentUnavailableView" SolidSecViewer; then
             echo "ERROR: ContentUnavailableView requiere iOS 17+."
@@ -162,14 +164,25 @@ jobs:
               > build/diagnostics/compiler-summary.txt || true
           fi
 
+      - name: Gate audited build
+        if: always()
+        run: |
+          set -euo pipefail
+          test "${{ steps.selftest.outcome }}" = "success"
+          test "${{ steps.packages.outcome }}" = "success"
+          test "${{ steps.pctest.outcome }}" = "success"
+          test "${{ steps.iosbuild.outcome }}" = "success"
+          test "${{ steps.validate.outcome }}" = "success"
+          test "${{ steps.warningguard.outcome }}" = "success"
+
       - name: Package and validate IPA
         run: bash scripts/ci/package_ipa.sh
 
       - name: Upload IPA
         uses: actions/upload-artifact@v6
         with:
-          name: NikaidoExplorer-LiveContainer-v0.8.2
-          path: build/package/NikaidoExplorer-LiveContainer-v0.8.2.ipa
+          name: NikaidoExplorer-LiveContainer-v0.10.0
+          path: build/package/NikaidoExplorer-LiveContainer-v0.10.0.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -177,7 +190,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: NikaidoExplorer-build-diagnostics-v0.8.2
+          name: NikaidoExplorer-build-diagnostics-v0.10.0
           path: |
             build/selftest/selftest.log
             build/selftest/SecCollectionSelfTest-compile.log

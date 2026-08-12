@@ -1,0 +1,32 @@
+NIKAIDO EXPLORER v0.10.0 LOCAL VALIDATION
+==========================================
+project.pbxproj: OK
+Info.plist: OK
+Swift syntax parse: 40/40
+Python py_compile: OK
+Shell syntax: OK
+GitHub Actions YAML: OK
+PROJECT AUDIT: OK (40 Swift sources referenced)
+SECURITY REGRESSION GUARDS: OK
+LIFECYCLE GUARD: OK
+INPLACE VIDEO GUARD: OK
+NIKAIDO RELIABILITY GUARD: OK
+V0.8.2 DIAGNOSTICS GUARD: OK
+VIDEO THUMBNAIL GUARD: OK
+EXPLORER CORE V0.9.0: OK
+EXPLORER CORE V0.10.0: OK
+AMSMB2 package pin: 4.0.3
+Drag & drop guard: OK
+Operation queue guard: OK
+Trash / Undo guard: OK
+SMB source integration guard: OK
+
+NOT VALIDATED IN THIS LINUX ENVIRONMENT
+---------------------------------------
+- Xcode typecheck/link for UIKit + AMSMB2/libsmb2
+- Real SMB2/SMB3 connection to Windows/NAS
+- Drag/drop gesture behavior on physical iPhone/iPad
+- Security-scoped provider behavior for .NikaidoTrash
+- LiveContainer execution
+
+GitHub Actions / Xcode on macOS remains authoritative for the real iPhone build.

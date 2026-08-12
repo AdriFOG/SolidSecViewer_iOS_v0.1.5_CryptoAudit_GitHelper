@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 private enum AppMode {
+    case explorer
     case privateVault
     case secReader
 }
@@ -10,7 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var vault: VaultSession
     @StateObject private var privateVault = PrivateVaultSession()
 
-    @State private var mode: AppMode?
+    @State private var mode: AppMode = .explorer
     @State private var showFolderPicker = false
     @State private var showZipPicker = false
     @State private var password = ""
@@ -36,18 +37,25 @@ struct ContentView: View {
         NavigationStack {
             Group {
                 switch mode {
+                case .explorer:
+                    ExplorerView(
+                        onOpenVault: {
+                            mode = .privateVault
+                        },
+                        onOpenSecReader: {
+                            mode = .secReader
+                        }
+                    )
+
                 case .privateVault:
                     PrivateVaultView {
                         privateVault.lock()
-                        mode = nil
+                        mode = .explorer
                     }
                     .environmentObject(privateVault)
 
                 case .secReader:
                     secReaderScreen
-
-                case nil:
-                    home
                 }
             }
         }
@@ -325,9 +333,9 @@ struct ContentView: View {
             HStack {
                 Button {
                     cleanupZipExtraction(clearVault: true)
-                    mode = nil
+                    mode = .explorer
                 } label: {
-                    Label("Inicio", systemImage: "chevron.left")
+                    Label("Explorer", systemImage: "chevron.left")
                 }
 
                 Spacer()
@@ -453,7 +461,7 @@ struct ContentView: View {
                 Button {
                     cleanupZipExtraction(clearVault: true)
                     selectedItem = nil
-                    mode = nil
+                    mode = .explorer
                 } label: {
                     Image(systemName: "house")
                 }

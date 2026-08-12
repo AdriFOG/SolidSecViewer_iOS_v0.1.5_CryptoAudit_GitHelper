@@ -36,6 +36,10 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Nikaido Link usa la red local únicamente cuando eliges recibir archivos directamente desde tu PC hacia Nikaido Vault.</string>
+	<string>Nikaido Link y SMB usan la red local únicamente cuando eliges transferir archivos o conectarte a un servidor de tu red.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>
